@@ -1,6 +1,5 @@
 """
 Purpose: Normalised execution evidence collected by the execute node from Playwright output.
-Owner: @Shema
 Reads: Playwright JSON results, run artifacts
 Writes: execution_evidence state field
 Must not: classify failures or propose fixes

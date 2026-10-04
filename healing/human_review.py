@@ -1,6 +1,5 @@
 """
 Purpose: Human Code Review checkpoint — presents generated code and validation errors; blocks the run until the reviewer decides.
-Owner: @Shema
 Reads: generated_test_files, validation_errors
 Writes: human_review_decision, edited_code, reviewer_note, human_review_count
 Must not: skip validation or alter application code

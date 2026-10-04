@@ -1,6 +1,5 @@
 """
 Purpose: Thin LangGraph node wrappers that delegate to service and agent functions; all exception catching goes here.
-Owner: @Shema
 Reads: TestRunState
 Writes: TestRunState
 Must not: perform routing decisions (routing lives in routing.py) or contain agent logic

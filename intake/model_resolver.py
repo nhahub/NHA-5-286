@@ -1,6 +1,5 @@
 """
 Purpose: Resolve and validate model strings for each agent slot using the override → DEFAULT_MODEL → FALLBACK_MODEL chain.
-Owner: @Shema
 Reads: test_request (model overrides), environment (DEFAULT_MODEL, FALLBACK_MODEL)
 Writes: models_used state field
 Must not: expose API keys, hard-code model names, or start a run without a usable model

@@ -1,6 +1,5 @@
 """
 Purpose: Code Generation agent — writes a single .spec.ts Playwright test file for one scenario.
-Owner: @Shema
 Reads: test_plan, validation_errors, reviewer_note
 Writes: generated_test_files
 Must not: execute tests, hardcode credentials, touch application code

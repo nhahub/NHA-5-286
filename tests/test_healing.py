@@ -1,6 +1,5 @@
 """
 Purpose: Tests for healing/ package — patch application and human code-review checkpoint.
-Owner: @Shema
 """
 
 # --- apply_fix ---

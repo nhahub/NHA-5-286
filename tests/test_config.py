@@ -1,6 +1,5 @@
 """
 Purpose: Tests for config.py — environment variable loading and validation.
-Owner: @Shema
 """
 
 # def test_load_config_returns_required_keys() -> None:

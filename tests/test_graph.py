@@ -1,6 +1,5 @@
 """
 Purpose: Tests for graph/ package — state shape, routing functions, and graph invariants.
-Owner: @Shema
 """
 
 # --- state ---

@@ -1,6 +1,5 @@
 """
 Purpose: Central configuration loaded from environment variables; single source of truth for tunables.
-Owner: @Shema
 Reads: environment variables (DEFAULT_MODEL, FALLBACK_MODEL, MAX_TOKENS_PER_RUN, AUTO_HEAL_MODE, HUMAN_REVIEW_MODE, ALLOW_HTTP, SCENARIO_CAP)
 Writes: N/A (read-only module)
 Must not: contain agent logic, make LLM calls, or expose secrets

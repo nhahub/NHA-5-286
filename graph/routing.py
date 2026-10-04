@@ -1,6 +1,5 @@
 """
 Purpose: Deterministic routing functions — plain Python if-statements reading TestRunState; no LLM calls.
-Owner: @Shema
 Reads: terminal_status, validation_status, generation_retry_count, failure_type, healing_retry_count, approval_decision, execution_result
 Writes: N/A (returns edge label strings only)
 Must not: call any LLM, modify state, or guess the next node

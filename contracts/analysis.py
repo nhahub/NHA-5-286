@@ -1,6 +1,5 @@
 """
 Purpose: Structured output contracts for the Failure Analyzer and Fix Proposal agents.
-Owner: @Shema
 Reads: execution_evidence, test_plan, test code
 Writes: failure_analysis, failure_type, fix_proposal state fields
 Must not: apply any fix, modify files, or reclassify failures

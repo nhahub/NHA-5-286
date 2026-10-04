@@ -1,6 +1,5 @@
 """
 Purpose: Tests for llm/ package — model initialisation and MCP tool filtering.
-Owner: @Shema
 """
 
 # --- client ---

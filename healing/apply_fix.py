@@ -1,6 +1,5 @@
 """
 Purpose: Apply Fix service — applies an approved patch to the spec file and increments the heal counter.
-Owner: @Shema
 Reads: fix_proposal, approval_decision
 Writes: generated_test_files, healing_retry_count
 Must not: apply an unapproved risky patch or exceed 2 heal attempts per test

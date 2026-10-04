@@ -1,6 +1,5 @@
 """
 Purpose: Initialise and cache LLM instances via init_chat_model using the provider:model format.
-Owner: @Shema
 Reads: models_used, environment API keys
 Writes: N/A (returns configured BaseChatModel objects)
 Must not: hard-code credentials, expose API keys to agents, or use local/self-hosted models

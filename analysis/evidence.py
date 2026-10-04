@@ -1,6 +1,5 @@
 """
 Purpose: Normalise raw Playwright JSON execution output into structured Evidence objects for the Failure Analyzer.
-Owner: @Shema
 Reads: execution_result (raw Playwright JSON reporter dict)
 Writes: execution_evidence state field
 Must not: classify failures or propose fixes

@@ -1,6 +1,5 @@
 """
 Purpose: Render ReportModel to Markdown, Playwright HTML, and PDF (Chromium page.pdf) — MVP exports.
-Owner: @Shema
 Reads: ReportModel, Jinja2 templates in report/templates/
 Writes: report.md, html-report/, report.pdf inside runs/<run_id>/
 Must not: reclassify a failure, change a result, call an agent, or re-run a test

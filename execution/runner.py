@@ -1,6 +1,5 @@
 """
 Purpose: Execute node — invokes Playwright and collects execution_result and execution_evidence without diagnosing anything.
-Owner: @Shema
 Reads: generated_test_files
 Writes: execution_result, execution_evidence
 Must not: diagnose failures or modify any code

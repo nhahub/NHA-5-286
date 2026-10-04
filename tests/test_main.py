@@ -1,6 +1,5 @@
 """
 Purpose: Tests for main.py — CLI entry point wiring.
-Owner: @Shema
 """
 
 # def test_run_headless_returns_terminal_status() -> None:

@@ -1,6 +1,5 @@
 """
 Purpose: TestRunState TypedDict — the single shared state object passed through every LangGraph node.
-Owner: @Shema
 Reads: N/A (type definition only)
 Writes: N/A (type definition only)
 Must not: contain business logic

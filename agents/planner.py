@@ -1,6 +1,5 @@
 """
 Purpose: Planner agent — inspects the live site and decides what is worth testing, how many scenarios, and positive vs negative coverage.
-Owner: @Shema
 Reads: target_url, requirements (from test_request)
 Writes: test_plan
 Must not: write Playwright code, exceed the scenario_cap, invent credentials

@@ -1,6 +1,5 @@
 """
 Purpose: Tests for intake/ package — URL resolution, safety checks, and model resolution.
-Owner: @Shema
 """
 
 # --- url_resolver ---

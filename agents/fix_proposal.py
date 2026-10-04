@@ -1,6 +1,5 @@
 """
 Purpose: Fix Proposal agent — proposes the minimal patch that repairs a failing test without hiding real bugs.
-Owner: @Shema
 Reads: failure_analysis, execution_evidence, test code
 Writes: fix_proposal
 Must not: apply its own patch or change anything outside the spec file

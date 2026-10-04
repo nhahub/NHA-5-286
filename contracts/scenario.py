@@ -1,6 +1,5 @@
 """
 Purpose: Input contract (TestRequest) and Planner output contract (Scenario).
-Owner: @Shema
 Reads: test_request state field
 Writes: test_plan state field
 Must not: contain execution logic or business rules

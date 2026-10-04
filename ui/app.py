@@ -1,6 +1,5 @@
 """
 Purpose: Gradio web interface — MVP two-field form (URL + requirements) with a collapsible LLM configuration section.
-Owner: @Shema
 Reads: user form inputs
 Writes: test_request (passed as TestRequest to the graph entry point)
 Must not: call agents directly, display API keys, accept model strings not in provider:model format, or accept a URL that bypasses safety checks

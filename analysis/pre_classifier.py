@@ -1,6 +1,5 @@
 """
 Purpose: Deterministic pre-classification step that validates the Analyzer agent's failure_type candidate and prevents guessing.
-Owner: @Shema
 Reads: failure_analysis (raw agent output dict)
 Writes: failure_type state field (validated string)
 Must not: guess a classification; unknown or malformed values must become ERROR, never a fallback class

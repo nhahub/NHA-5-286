@@ -1,6 +1,5 @@
 """
 Purpose: Build the ReportModel from final TestRunState; the LLM contributes explanation text only.
-Owner: @Shema
 Reads: all TestRunState fields
 Writes: terminal_status, report_path state fields
 Must not: reclassify a failure, change a result, call an agent, or re-run a test

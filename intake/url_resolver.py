@@ -1,6 +1,5 @@
 """
 Purpose: Resolve the target URL from the test_request url field or from requirements text.
-Owner: @Shema
 Reads: test_request
 Writes: target_url (with source annotation)
 Must not: infer a missing requirement, accept a blocked URL, substitute a default site, or guess when multiple URLs are present

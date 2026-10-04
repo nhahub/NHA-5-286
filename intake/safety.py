@@ -1,6 +1,5 @@
 """
 Purpose: Safety-check a resolved URL before any browser call is made.
-Owner: @Shema
 Reads: target_url, ALLOW_HTTP config
 Writes: N/A (returns validation result; caller sets terminal_status to BLOCKED on failure)
 Must not: infer a missing requirement, accept a blocked URL, substitute a default site

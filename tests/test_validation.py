@@ -1,6 +1,5 @@
 """
 Purpose: Tests for validation/validator.py — deterministic Playwright API correctness checking.
-Owner: @Shema
 """
 
 # def test_valid_spec_file_returns_true() -> None:

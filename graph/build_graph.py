@@ -1,6 +1,5 @@
 """
 Purpose: Assemble and compile the LangGraph StateGraph from all node and routing functions.
-Owner: @Shema
 Reads: N/A (builder; no state access)
 Writes: N/A (returns a compiled graph object)
 Must not: hard-code model names, API keys, or routing logic (routing lives in routing.py)

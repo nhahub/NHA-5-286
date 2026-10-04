@@ -1,6 +1,5 @@
 """
 Purpose: Re-export all contract models for convenient single-import access.
-Owner: @Shema
 Reads: N/A
 Writes: N/A
 Must not: contain business logic

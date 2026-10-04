@@ -1,6 +1,5 @@
 """
 Purpose: Tests for execution/ package — Playwright test runner and evidence collection.
-Owner: @Shema
 """
 
 # --- runner ---

@@ -1,6 +1,5 @@
 """
 Purpose: Failure Analyzer agent — classifies each failure as Test / Application / Environment / Infrastructure and decides whether it is fixable.
-Owner: @Shema
 Reads: execution_evidence, test_plan, test code
 Writes: failure_analysis, failure_type
 Must not: apply a fix or assert a cause the evidence does not support

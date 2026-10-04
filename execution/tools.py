@@ -1,6 +1,5 @@
 """
 Purpose: Local tool definitions exposed with the @tool decorator for agent use; run_playwright_tests is excluded from agent tool lists.
-Owner: @Shema
 Reads: file system (spec files, results)
 Writes: file system (spec files via save_test_file)
 Must not: expose run_playwright_tests as a tool choosable by a model

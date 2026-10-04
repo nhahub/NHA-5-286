@@ -1,6 +1,5 @@
 """
 Purpose: Connect to the official Playwright MCP server and return per-agent filtered tool lists.
-Owner: @Shema
 Reads: N/A (spawns MCP subprocess)
 Writes: N/A (returns tool objects)
 Must not: expose the unfiltered MCP tool list to any agent; each agent receives only its allowed tools (spec §3)

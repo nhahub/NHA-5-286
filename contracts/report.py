@@ -1,6 +1,5 @@
 """
 Purpose: Report model that drives deterministic template rendering; LLM contributes explanation text only.
-Owner: @Shema
 Reads: all TestRunState fields
 Writes: terminal_status, report_path state fields
 Must not: reclassify a failure or change a result to make the report tidy

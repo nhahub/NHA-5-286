@@ -1,6 +1,5 @@
 """
 Purpose: Deterministic validator — checks that generated .spec.ts files compile and use the Playwright API correctly.
-Owner: @Shema
 Reads: generated_test_files
 Writes: validation_status, validation_errors, generation_retry_count
 Must not: rewrite code or judge business correctness

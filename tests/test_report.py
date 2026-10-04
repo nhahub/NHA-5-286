@@ -1,6 +1,5 @@
 """
 Purpose: Tests for report/ package — ReportModel building and format exporters.
-Owner: @Shema
 """
 
 # --- model ---

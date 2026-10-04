@@ -1,6 +1,5 @@
 """
 Purpose: Tests for agents/ package — Planner, Code Generation, Failure Analyzer, Fix Proposal.
-Owner: @Shema
 """
 
 # --- planner ---

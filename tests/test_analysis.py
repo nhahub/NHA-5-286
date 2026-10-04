@@ -1,6 +1,5 @@
 """
 Purpose: Tests for analysis/ package — evidence normalisation and failure-class pre-classification.
-Owner: @Shema
 """
 
 # --- evidence ---

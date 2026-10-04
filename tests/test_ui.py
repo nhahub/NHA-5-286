@@ -1,6 +1,5 @@
 """
 Purpose: Tests for ui/app.py — Gradio form wiring and input validation.
-Owner: @Shema
 """
 
 # def test_build_ui_returns_gradio_blocks() -> None:

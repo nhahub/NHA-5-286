@@ -1,6 +1,5 @@
 """
 Purpose: CLI entry point that wires configuration, the LangGraph orchestrator, and the Gradio UI together.
-Owner: @Shema
 Reads: CLI arguments
 Writes: N/A
 Must not: contain business logic; delegate entirely to graph/ and ui/
