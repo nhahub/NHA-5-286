@@ -72,26 +72,26 @@ npx playwright test     # Generated TypeScript specs (requires a run to exist in
 
 ## Folder map
 
-| Folder | Contents | Owner |
+| Folder | Contents |
 |--------|----------|-------|
-| `contracts/` | Pydantic models: `TestRequest`, `Scenario`, `Evidence`, `FailureAnalysis`, `FixProposal`, `ReportModel` | @Shema |
-| `intake/` | URL resolver, safety checks (SSRF guard), model resolver | @Shema |
-| `agents/` | Four LLM agents: Planner, Code Generation, Failure Analyzer, Fix Proposal | @Shema |
-| `prompts/` | Markdown system prompts for each agent | @Shema |
-| `validation/` | Deterministic TypeScript/Playwright API validator (`tsc --noEmit`) | @Shema |
-| `execution/` | Playwright test runner and evidence collector; local `@tool` functions | @Shema |
-| `analysis/` | Evidence normalisation; deterministic failure-class pre-classifier | @Shema |
-| `healing/` | Patch applicator (`apply_fix`); human code-review checkpoint | @Shema |
-| `graph/` | LangGraph `TestRunState`, node wrappers, routing functions, graph builder | @Shema |
-| `llm/` | `init_chat_model` wrapper; Playwright MCP client with per-agent tool filter | @Shema |
-| `report/` | `ReportModel` builder; Jinja2 Markdown/HTML exporters; PDF via Chromium | @Shema |
-| `ui/` | Gradio two-field MVP form with optional LLM configuration section | @Shema |
-| `fixtures/` | Realistic fake data satisfying the contracts (used by `tests/test_fixtures.py`) | @Shema |
-| `test_data/` | Generic test inputs (sample requirements, blocked URLs, model strings) | @Shema |
-| `tests/` | `test_fixtures.py` (working) + one stub test file per module | @Shema |
-| `reference/` | Reserved for architecture documents and decision records | @Shema |
-| `runs/` | Generated at runtime: `runs/<run_id>/` holds specs, results, artifacts, report | @Shema |
-| `prompts/` | Agent system-prompt templates (Markdown) | @Shema |
+| `contracts/` | Pydantic models: `TestRequest`, `Scenario`, `Evidence`, `FailureAnalysis`, `FixProposal`, `ReportModel` |
+| `intake/` | URL resolver, safety checks (SSRF guard), model resolver |
+| `agents/` | Four LLM agents: Planner, Code Generation, Failure Analyzer, Fix Proposal |
+| `prompts/` | Markdown system prompts for each agent |
+| `validation/` | Deterministic TypeScript/Playwright API validator (`tsc --noEmit`) |
+| `execution/` | Playwright test runner and evidence collector; local `@tool` functions |
+| `analysis/` | Evidence normalisation; deterministic failure-class pre-classifier |
+| `healing/` | Patch applicator (`apply_fix`); human code-review checkpoint |
+| `graph/` | LangGraph `TestRunState`, node wrappers, routing functions, graph builder |
+| `llm/` | `init_chat_model` wrapper; Playwright MCP client with per-agent tool filter |
+| `report/` | `ReportModel` builder; Jinja2 Markdown/HTML exporters; PDF via Chromium |
+| `ui/` | Gradio two-field MVP form with optional LLM configuration section |
+| `fixtures/` | Realistic fake data satisfying the contracts (used by `tests/test_fixtures.py`) |
+| `test_data/` | Generic test inputs (sample requirements, blocked URLs, model strings) |
+| `tests/` | `test_fixtures.py` (working) + one stub test file per module |
+| `reference/` | Reserved for architecture documents and decision records |
+| `runs/` | Generated at runtime: `runs/<run_id>/` holds specs, results, artifacts, report |
+| `prompts/` | Agent system-prompt templates (Markdown) |
 
 ---
 
