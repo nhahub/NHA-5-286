@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Test Report — {{ report.run_id }}</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; color: #1a1a1a; }
+    h1 { border-bottom: 2px solid #e0e0e0; padding-bottom: .5rem; }
+    .badge { display: inline-block; padding: .2rem .6rem; border-radius: 4px; font-weight: 700; font-size: .85rem; }
+    .PASS { background: #d4edda; color: #155724; }
+    .FAIL { background: #f8d7da; color: #721c24; }
+    .BLOCKED { background: #fff3cd; color: #856404; }
+    .ERROR { background: #f5c6cb; color: #491217; }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+    th, td { border: 1px solid #dee2e6; padding: .5rem .75rem; text-align: left; }
+    th { background: #f8f9fa; }
+    pre { background: #f8f9fa; padding: 1rem; border-radius: 4px; overflow-x: auto; font-size: .85rem; }
+    blockquote { border-left: 4px solid #dee2e6; margin: 0; padding-left: 1rem; color: #555; }
+    .meta { color: #6c757d; font-size: .9rem; }
+  </style>
+</head>
+<body>
+
+<h1>AI Test Run Report</h1>
+<p class="meta">
+  Run ID: <code>{{ report.run_id }}</code> &nbsp;·&nbsp;
+  <span class="badge {{ report.terminal_status }}">{{ report.terminal_status }}</span> &nbsp;·&nbsp;
+  {{ "%.1f"|format(report.duration_seconds or 0) }}s &nbsp;·&nbsp;
+  {{ generated_at }}
+</p>
+
+<h2>Requirements</h2>
+<blockquote>{{ report.requirements }}</blockquote>
+{% if requirements_note %}<p class="meta"><em>{{ requirements_note }}</em></p>{% endif %}
+
+<h2>Summary</h2>
+<table>
+  <tr><th>Metric</th><th>Value</th></tr>
+  <tr><td>Terminal status</td><td><span class="badge {{ report.terminal_status }}">{{ report.terminal_status }}</span></td></tr>
+  <tr><td>URL tested</td><td>{{ report.target_url or "N/A" }}</td></tr>
+  <tr><td>Total scenarios</td><td>{{ report.scenarios | length }}</td></tr>
+  <tr><td>Generation attempts</td><td>{{ report.generation_attempts }}</td></tr>
+  <tr><td>Heal attempts</td><td>{{ report.heal_attempts }}</td></tr>
+</table>
+
+<h2>Scenario Results</h2>
+<table>
+  <tr><th>Scenario</th><th>Status</th><th>Failure type</th><th>Subtype</th><th>Root cause</th></tr>
+  {% for s in report.scenarios %}
+  <tr>
+    <td>{{ s.name }}</td>
+    <td><span class="badge {{ s.status }}">{{ s.status }}</span></td>
+    <td>{{ s.failure_type or "—" }}</td>
+    <td>{{ s.subtype or "—" }}</td>
+    <td>{{ s.root_cause or "—" }}</td>
+  </tr>
+  {% endfor %}
+</table>
+
+<h2>Models Used</h2>
+<table>
+  <tr><th>Agent</th><th>Model</th></tr>
+  {% for agent, model in report.models_used.items() %}
+  <tr><td>{{ agent }}</td><td><code>{{ model }}</code></td></tr>
+  {% endfor %}
+</table>
+
+{% if report.defect_candidates %}
+<h2>Defect Candidates <small>(Application failures — future issue-tracker)</small></h2>
+<ul>{% for d in report.defect_candidates %}<li>{{ d }}</li>{% endfor %}</ul>
+{% endif %}
+
+{% if report.errors %}
+<h2>Errors</h2>
+<ul>{% for e in report.errors %}<li><code>{{ e }}</code></li>{% endfor %}</ul>
+{% endif %}
+
+<hr />
+<p class="meta">AI Test Automation &nbsp;·&nbsp; English report always &nbsp;·&nbsp; Application code is never changed automatically.</p>
+
+</body>
+</html>

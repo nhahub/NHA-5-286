@@ -1,0 +1,35 @@
+# ── Run outputs ──────────────────────────────────────────────────────────────
+runs/
+playwright-report/
+test-results/
+results/
+
+# ── Environment ───────────────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── Node ──────────────────────────────────────────────────────────────────────
+node_modules/
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── IDE / OS ──────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db

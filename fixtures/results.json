@@ -1,0 +1,161 @@
+{
+  "config": {
+    "configFile": "/workspace/playwright.config.ts",
+    "rootDir": "/workspace",
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {},
+    "preserveOutput": "always",
+    "reporter": [["json", { "outputFile": "runs/run-20261004-abc123/results.json" }]],
+    "reportSlowTests": { "max": 5, "threshold": 15000 },
+    "quiet": false,
+    "projects": [
+      { "id": "chromium", "name": "chromium", "outputDir": "test-results" }
+    ],
+    "shard": null,
+    "updateSnapshots": "missing",
+    "version": "1.48.0",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "homepage_load.spec.ts",
+      "file": "runs/run-20261004-abc123/tests/homepage_load.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "Homepage loads and primary navigation is visible",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "status": "passed",
+                  "duration": 1823,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-04T09:15:32.100Z",
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "add_todo.spec.ts",
+      "file": "runs/run-20261004-abc123/tests/add_todo.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "Add a new todo item",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "status": "passed",
+                  "duration": 2147,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-04T09:15:34.100Z",
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "complete_todo.spec.ts",
+      "file": "runs/run-20261004-abc123/tests/complete_todo.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "Mark a todo item as complete",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "status": "timedOut",
+                  "duration": 30014,
+                  "errors": [
+                    {
+                      "message": "TimeoutError: locator.click: Timeout 30000ms exceeded.\nCall log:\n  - waiting for locator('.todo-list li .toggle')\n  -   locator resolved to 0 elements\n\n   6 |   await page.locator('.new-todo').fill('Finish report');\n   7 |   await page.locator('.new-todo').press('Enter');\n>  8 |   await page.locator('.todo-list li .toggle').click();\n     |                                               ^\n   9 |   await expect(page.locator('.todo-list li')).toHaveClass('completed');\n  10 | });",
+                      "stack": "TimeoutError: locator.click: Timeout 30000ms exceeded.\n    at /workspace/runs/run-20261004-abc123/tests/complete_todo.spec.ts:8:47\n    at WorkerRunner.runTestWithBeforeHooks (/usr/local/lib/node_modules/@playwright/test/lib/runner/workerRunner.js:543:7)\n    at async WorkerRunner.runTest (/usr/local/lib/node_modules/@playwright/test/lib/runner/workerRunner.js:490:5)"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-04T09:15:36.400Z",
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "runs/run-20261004-abc123/artifacts/complete_todo-failed-chromium-1.png"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "runs/run-20261004-abc123/artifacts/complete_todo-chromium-1.zip"
+                    }
+                  ]
+                }
+              ],
+              "status": "unexpected"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "stats": {
+    "startTime": "2026-10-04T09:15:30.000Z",
+    "duration": 33984,
+    "expected": 2,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 0
+  }
+}

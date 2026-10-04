@@ -1,0 +1,128 @@
+{
+  "run_id": "run-20261004-abc123",
+  "test_request": {
+    "url": "https://demo.playwright.dev/todomvc",
+    "requirements": "Test the TodoMVC application: verify that a user can add a new todo item, mark it as complete, and that the homepage loads correctly.",
+    "scenario_cap": 3,
+    "planner_model": null,
+    "codegen_model": null,
+    "healer_model": null,
+    "fallback_model": null,
+    "authorization": true
+  },
+  "target_url": "https://demo.playwright.dev/todomvc",
+  "test_plan": [
+    {
+      "name": "Homepage loads and primary navigation is visible",
+      "steps": [
+        { "action": "navigate", "target": "https://demo.playwright.dev/todomvc", "value": null },
+        { "action": "snapshot", "target": null, "value": null },
+        { "action": "assert_visible", "target": ".todoapp", "value": null }
+      ],
+      "expected_result": "The TodoMVC page loads without errors and the main container is visible.",
+      "status": "PASS"
+    },
+    {
+      "name": "Add a new todo item",
+      "steps": [
+        { "action": "navigate", "target": "https://demo.playwright.dev/todomvc", "value": null },
+        { "action": "type", "target": ".new-todo", "value": "Buy groceries" },
+        { "action": "press", "target": ".new-todo", "value": "Enter" },
+        { "action": "assert_text", "target": ".todo-list li label", "value": "Buy groceries" }
+      ],
+      "expected_result": "After pressing Enter, 'Buy groceries' appears in the todo list.",
+      "status": "PASS"
+    },
+    {
+      "name": "Mark a todo item as complete",
+      "steps": [
+        { "action": "navigate", "target": "https://demo.playwright.dev/todomvc", "value": null },
+        { "action": "type", "target": ".new-todo", "value": "Finish report" },
+        { "action": "press", "target": ".new-todo", "value": "Enter" },
+        { "action": "click", "target": ".todo-list li .toggle", "value": null },
+        { "action": "assert_class", "target": ".todo-list li", "value": "completed" }
+      ],
+      "expected_result": "After clicking the toggle, the todo item is marked as completed.",
+      "status": "FAIL"
+    }
+  ],
+  "generated_test_files": [
+    "runs/run-20261004-abc123/tests/homepage_load.spec.ts",
+    "runs/run-20261004-abc123/tests/add_todo.spec.ts",
+    "runs/run-20261004-abc123/tests/complete_todo.spec.ts"
+  ],
+  "validation_status": "valid",
+  "validation_errors": [],
+  "generation_retry_count": 0,
+  "human_review_decision": null,
+  "human_review_count": 0,
+  "reviewer_note": null,
+  "edited_code": null,
+  "execution_result": {
+    "stats": {
+      "startTime": "2026-10-04T09:15:30.000Z",
+      "duration": 33984,
+      "expected": 2,
+      "skipped": 0,
+      "unexpected": 1,
+      "flaky": 0
+    }
+  },
+  "execution_evidence": [
+    {
+      "scenario_name": "Homepage loads and primary navigation is visible",
+      "error_message": null,
+      "failed_step": null,
+      "spec_code": null,
+      "page_snapshot": null,
+      "screenshot_path": null,
+      "trace_path": null,
+      "console_log": []
+    },
+    {
+      "scenario_name": "Add a new todo item",
+      "error_message": null,
+      "failed_step": null,
+      "spec_code": null,
+      "page_snapshot": null,
+      "screenshot_path": null,
+      "trace_path": null,
+      "console_log": []
+    },
+    {
+      "scenario_name": "Mark a todo item as complete",
+      "error_message": "TimeoutError: locator.click: Timeout 30000ms exceeded.\nCall log:\n  - waiting for locator('.todo-list li .toggle')\n  -   locator resolved to 0 elements",
+      "failed_step": "await page.locator('.todo-list li .toggle').click();",
+      "spec_code": null,
+      "page_snapshot": null,
+      "screenshot_path": "runs/run-20261004-abc123/artifacts/complete_todo-failed-chromium-1.png",
+      "trace_path": "runs/run-20261004-abc123/artifacts/complete_todo-chromium-1.zip",
+      "console_log": []
+    }
+  ],
+  "failure_analysis": {
+    "failure_type": "Test",
+    "root_cause": "The locator '.todo-list li .toggle' timed out because the list item was not yet rendered when the click was attempted. The test is missing an explicit wait for the list item after pressing Enter.",
+    "evidence": "TimeoutError: locator.click: Timeout 30000ms exceeded. Locator resolved to 0 elements.",
+    "application_bug": false,
+    "fix_required": true,
+    "subtype": "TIMING"
+  },
+  "failure_type": "Test",
+  "fix_proposal": {
+    "patch_diff": "--- a/runs/run-20261004-abc123/tests/complete_todo.spec.ts\n+++ b/runs/run-20261004-abc123/tests/complete_todo.spec.ts\n@@ -5,6 +5,7 @@\n   await page.locator('.new-todo').fill('Finish report');\n   await page.locator('.new-todo').press('Enter');\n+  await page.locator('.todo-list li').waitFor({ state: 'visible' });\n   await page.locator('.todo-list li .toggle').click();\n   await expect(page.locator('.todo-list li')).toHaveClass('completed');\n });",
+    "reason": "Added an explicit waitFor({ state: 'visible' }) on the list item before clicking the toggle. This waits for the React state update to render the new item without changing any assertion.",
+    "risky": false
+  },
+  "approval_decision": "auto",
+  "healing_retry_count": 1,
+  "models_used": {
+    "planner": "openai:gpt-4o",
+    "codegen": "openai:gpt-4o",
+    "analyzer": "openai:gpt-4o",
+    "fix_proposal": "openai:gpt-4o"
+  },
+  "terminal_status": "FAIL",
+  "errors": [],
+  "report_path": "runs/run-20261004-abc123/report.md"
+}

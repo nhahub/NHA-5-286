@@ -1,0 +1,97 @@
+{
+  "role": "WebArea",
+  "name": "React • TodoMVC",
+  "children": [
+    {
+      "role": "heading",
+      "name": "todos",
+      "level": 1
+    },
+    {
+      "role": "textbox",
+      "name": "What needs to be done?",
+      "focused": true,
+      "value": ""
+    },
+    {
+      "role": "list",
+      "name": "todo list",
+      "children": [
+        {
+          "role": "listitem",
+          "name": "Buy groceries",
+          "children": [
+            {
+              "role": "checkbox",
+              "name": "Buy groceries",
+              "checked": false
+            },
+            {
+              "role": "generic",
+              "name": "Buy groceries"
+            },
+            {
+              "role": "button",
+              "name": "Delete"
+            }
+          ]
+        },
+        {
+          "role": "listitem",
+          "name": "Finish report",
+          "children": [
+            {
+              "role": "checkbox",
+              "name": "Finish report",
+              "checked": false
+            },
+            {
+              "role": "generic",
+              "name": "Finish report"
+            },
+            {
+              "role": "button",
+              "name": "Delete"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "role": "contentinfo",
+      "name": "",
+      "children": [
+        {
+          "role": "status",
+          "name": "2 items left!"
+        },
+        {
+          "role": "list",
+          "name": "filter",
+          "children": [
+            {
+              "role": "listitem",
+              "name": "All",
+              "children": [{ "role": "link", "name": "All", "current": true }]
+            },
+            {
+              "role": "listitem",
+              "name": "Active",
+              "children": [{ "role": "link", "name": "Active" }]
+            },
+            {
+              "role": "listitem",
+              "name": "Completed",
+              "children": [{ "role": "link", "name": "Completed" }]
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "Clear completed",
+          "hidden": true
+        }
+      ]
+    }
+  ]
+}

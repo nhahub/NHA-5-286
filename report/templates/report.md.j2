@@ -1,0 +1,66 @@
+# AI Test Run Report
+
+**Run ID:** {{ report.run_id }}
+**Status:** {{ report.terminal_status }}
+**URL:** {{ report.target_url or "N/A" }}
+**Duration:** {{ "%.1f"|format(report.duration_seconds or 0) }}s
+**Generated:** {{ generated_at }}
+
+---
+
+## Requirements
+
+> {{ report.requirements }}
+
+---
+
+## Summary
+
+| Metric | Value |
+|--------|-------|
+| Terminal status | **{{ report.terminal_status }}** |
+| Total scenarios | {{ report.scenarios | length }} |
+| Generation attempts | {{ report.generation_attempts }} |
+| Heal attempts | {{ report.heal_attempts }} |
+
+---
+
+## Scenario Results
+
+| Scenario | Status | Failure type | Subtype | Root cause |
+|----------|--------|-------------|---------|------------|
+{% for s in report.scenarios -%}
+| {{ s.name }} | {{ s.status }} | {{ s.failure_type or "—" }} | {{ s.subtype or "—" }} | {{ s.root_cause or "—" }} |
+{% endfor %}
+
+---
+
+## Models Used
+
+{% for agent, model in report.models_used.items() -%}
+- **{{ agent }}**: `{{ model }}`
+{% endfor %}
+
+{% if report.defect_candidates %}
+---
+
+## Defect Candidates *(Application failures — for future issue-tracker integration)*
+
+{% for d in report.defect_candidates -%}
+- {{ d }}
+{% endfor %}
+{% endif %}
+
+{% if report.errors %}
+---
+
+## Errors
+
+{% for e in report.errors -%}
+- `{{ e }}`
+{% endfor %}
+{% endif %}
+
+---
+
+*AI Test Automation · English report always · Application code is never changed automatically.*

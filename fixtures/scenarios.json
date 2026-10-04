@@ -1,0 +1,40 @@
+[
+  {
+    "name": "Homepage loads and primary navigation is visible",
+    "steps": [
+      { "action": "navigate", "target": "https://demo.playwright.dev/todomvc", "value": null },
+      { "action": "snapshot", "target": null, "value": null },
+      { "action": "assert_visible", "target": ".todoapp", "value": null },
+      { "action": "assert_title", "target": null, "value": "React • TodoMVC" }
+    ],
+    "expected_result": "The TodoMVC page loads without errors, the main '.todoapp' container is visible, and the page title is 'React • TodoMVC'.",
+    "status": null
+  },
+  {
+    "name": "Add a new todo item",
+    "steps": [
+      { "action": "navigate", "target": "https://demo.playwright.dev/todomvc", "value": null },
+      { "action": "click", "target": ".new-todo", "value": null },
+      { "action": "type", "target": ".new-todo", "value": "Buy groceries" },
+      { "action": "press", "target": ".new-todo", "value": "Enter" },
+      { "action": "assert_visible", "target": ".todo-list li", "value": null },
+      { "action": "assert_text", "target": ".todo-list li label", "value": "Buy groceries" }
+    ],
+    "expected_result": "After typing 'Buy groceries' and pressing Enter, the item appears in the todo list with the correct label.",
+    "status": null
+  },
+  {
+    "name": "Mark a todo item as complete",
+    "steps": [
+      { "action": "navigate", "target": "https://demo.playwright.dev/todomvc", "value": null },
+      { "action": "click", "target": ".new-todo", "value": null },
+      { "action": "type", "target": ".new-todo", "value": "Finish report" },
+      { "action": "press", "target": ".new-todo", "value": "Enter" },
+      { "action": "assert_visible", "target": ".todo-list li", "value": null },
+      { "action": "click", "target": ".todo-list li .toggle", "value": null },
+      { "action": "assert_class", "target": ".todo-list li", "value": "completed" }
+    ],
+    "expected_result": "After clicking the toggle checkbox on 'Finish report', the list item receives the CSS class 'completed'.",
+    "status": null
+  }
+]

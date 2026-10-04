@@ -1,0 +1,43 @@
+{
+  "sample_requirements": [
+    {
+      "id": "req-001",
+      "text": "Test the TodoMVC homepage: verify that the page loads, a user can add a new item, and the item counter updates correctly.",
+      "url": "https://demo.playwright.dev/todomvc",
+      "authorization": true
+    },
+    {
+      "id": "req-002",
+      "text": "اختبر أن صفحة قائمة المهام تعرض العناصر بشكل صحيح وأن مربع الإدخال يقبل النص العربي.",
+      "url": "https://demo.playwright.dev/todomvc",
+      "authorization": true,
+      "_note": "Arabic requirements are supported; all agent outputs are in English"
+    }
+  ],
+  "blocked_urls": [
+    "http://localhost:3000",
+    "http://127.0.0.1:8080",
+    "http://192.168.1.1",
+    "http://10.0.0.1",
+    "http://172.16.0.1",
+    "http://169.254.169.254"
+  ],
+  "model_strings": {
+    "valid": [
+      "openai:gpt-4o",
+      "openai:gpt-4o-mini",
+      "anthropic:claude-sonnet-4-6"
+    ],
+    "invalid": [
+      "gpt-4o",
+      "local:llama3",
+      "",
+      "openai/"
+    ]
+  },
+  "scenario_cap_values": {
+    "default": 3,
+    "minimum": 1,
+    "maximum": 5
+  }
+}
