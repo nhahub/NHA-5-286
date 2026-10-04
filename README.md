@@ -73,7 +73,7 @@ npx playwright test     # Generated TypeScript specs (requires a run to exist in
 ## Folder map
 
 | Folder | Contents |
-|--------|----------|-------|
+|--------|----------|
 | `contracts/` | Pydantic models: `TestRequest`, `Scenario`, `Evidence`, `FailureAnalysis`, `FixProposal`, `ReportModel` |
 | `intake/` | URL resolver, safety checks (SSRF guard), model resolver |
 | `agents/` | Four LLM agents: Planner, Code Generation, Failure Analyzer, Fix Proposal |
@@ -91,7 +91,6 @@ npx playwright test     # Generated TypeScript specs (requires a run to exist in
 | `tests/` | `test_fixtures.py` (working) + one stub test file per module |
 | `reference/` | Reserved for architecture documents and decision records |
 | `runs/` | Generated at runtime: `runs/<run_id>/` holds specs, results, artifacts, report |
-| `prompts/` | Agent system-prompt templates (Markdown) |
 
 ---
 
