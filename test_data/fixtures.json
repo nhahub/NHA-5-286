@@ -12,8 +12,24 @@
       "url": "https://demo.playwright.dev/todomvc",
       "authorization": true,
       "_note": "Arabic requirements are supported; all agent outputs are in English"
+    },
+    {
+      "id": "req-003",
+      "text": "Login with valid credentials",
+      "url": "https://example.com",
+      "authorization": true
     }
   ],
+  "users": {
+    "standard": {
+      "username": "standard_user",
+      "password": "secret_sauce"
+    },
+    "locked": {
+      "username": "locked_out_user",
+      "password": "secret_sauce"
+    }
+  },
   "blocked_urls": [
     "http://localhost:3000",
     "http://127.0.0.1:8080",
@@ -41,3 +57,4 @@
     "maximum": 5
   }
 }
+
