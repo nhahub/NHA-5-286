@@ -1,49 +1,43 @@
 import { defineConfig, devices } from '@playwright/test';
+import * as path from 'node:path';
 
 /**
- * Playwright Configuration for Autonomous AI Test Execution Engine.
+ * Playwright configuration for generated specs.
+ *
+ * Contract with execution/runner.py (P3):
+ *   - RUN_DIR   absolute or repo-relative path to runs/<run_id>/ (set per run)
+ *   - TARGET_URL optional; resolved by intake, exposed as baseURL
+ * Layout inside RUN_DIR: tests/, artifacts/, results.json, html-report/
  */
+const RUN_DIR = path.resolve(process.env.RUN_DIR ?? 'runs/_local');
+
 export default defineConfig({
-  testDir: './runs',
+  testDir: path.join(RUN_DIR, 'tests'),
   testMatch: '**/*.spec.ts',
+  outputDir: path.join(RUN_DIR, 'artifacts'),
 
-  /* Timeout per individual test execution (30 seconds limit as per locked specs) */
-  timeout: 30_000,
-  
-  expect: {
-    timeout: 5000,
-  },
+  timeout: 30_000, // per test, locked in the architecture spec
+  expect: { timeout: 5_000 },
 
-  /* Do not run test files in parallel to guarantee isolated execution state */
   fullyParallel: false,
-
-  /* Retries managed exclusively by LangGraph orchestrator, set to 0 */
-  retries: 0,
-
-  /* Single worker execution for deterministic results */
   workers: 1,
+  retries: 0, // retries are owned by the LangGraph orchestrator
+  forbidOnly: true, // a generated test.only must fail the run, never skip tests
 
-  /* Reporters: console list + JSON for evidence parser */
   reporter: [
     ['list'],
-    ['json', { outputFile: 'results.json' }]
+    ['json', { outputFile: path.join(RUN_DIR, 'results.json') }],
+    ['html', { outputFolder: path.join(RUN_DIR, 'html-report'), open: 'never' }],
   ],
 
   use: {
-    browserName: 'chromium',
+    baseURL: process.env.TARGET_URL,
     headless: true,
     screenshot: 'only-on-failure',
-    video: 'retain-on-failure',
     trace: 'retain-on-failure',
     actionTimeout: 10_000,
+    navigationTimeout: 15_000,
   },
 
-  projects: [
-    {
-      name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
-    },
-  ],
-
-  outputDir: 'test-results/',
+  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
 });

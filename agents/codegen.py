@@ -1,140 +1,213 @@
 """
-Purpose: Code Generation agent — writes a single .spec.ts Playwright test file for one scenario.
-Reads: test_plan, validation_errors, reviewer_note
-Writes: generated_test_files
+Purpose: Code Generation agent. Turns each Scenario into one validated-ready Playwright .spec.ts file.
+Reads: test_plan, target_url, generated_test_files, validation_errors, reviewer_note, run_id, errors, models_used
+Writes: generated_test_files, models_used["codegen"], errors
 Must not: execute tests, hardcode credentials, touch application code
 """
+from __future__ import annotations
 
+import json
+import logging
+import re
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-from langchain_core.messages import HumanMessage, SystemMessage
-from contracts.scenario import Scenario
-from graph.state import TestRunState
+from typing import Any, Protocol
+
+from pydantic import BaseModel, Field, field_validator
+
+logger = logging.getLogger(__name__)
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROMPT_PATH = PROJECT_ROOT / "prompts" / "codegen.md"
+REFERENCE_DIR = PROJECT_ROOT / "reference"
+EVIDENCE_IMPORT = "@support/evidence"
+MAX_ERRORS_IN_PAYLOAD = 20
 
 
-def load_codegen_prompt() -> str:
-    """Loads the Code Generation system prompt from prompts/codegen.md."""
-    prompt_path = Path(__file__).parent.parent / "prompts" / "codegen.md"
-    if prompt_path.exists():
-        return prompt_path.read_text(encoding="utf-8")
-    
-    # Fallback inline system prompt if file is missing
-    return (
-        "You are the Code Generation agent. Write a single Playwright TypeScript .spec.ts "
-        "test file for one scenario. Do not hardcode credentials. Do not execute tests."
-    )
+class CodegenError(RuntimeError):
+    """A scenario could not be turned into a spec file."""
 
 
-def generate_scenario_code(
-    scenario: Scenario,
-    run_id: str,
-    llm_client: Any,
-    validation_errors: Optional[List[str]] = None,
-    reviewer_note: Optional[str] = None,
-) -> str:
-    """
-    Generates a Playwright TypeScript test file for a single scenario.
-    """
-    system_prompt = load_codegen_prompt()
-    
-    # Target file output path specification
-    target_dir = Path("runs") / run_id / "tests"
-    target_dir.mkdir(parents=True, exist_ok=True)
-    file_path = target_dir / f"{scenario.id}.spec.ts"
+# ------------------------------------------------------------------ output contract
+_FENCE = re.compile(r"^```(?:typescript|ts)?[ \t]*\n(?P<body>.*?)\n```[ \t]*$", re.S)
 
-    # Construct input contextual details
-    payload = (
-        f"Target Spec Path: {file_path.as_posix()}\n"
-        f"Scenario ID: {scenario.id}\n"
-        f"Scenario Title: {scenario.title}\n"
-        f"Steps:\n" + "\n".join([f"- {step}" for step in scenario.steps]) + "\n"
-        f"Expected Result: {scenario.expected_result}\n"
-    )
 
-    if validation_errors:
-        payload += (
-            "\n--- PREVIOUS VALIDATION ERRORS ---\n"
-            "Fix ONLY these specific errors without breaking other functionality:\n"
-            + "\n".join([f"- {err}" for err in validation_errors]) + "\n"
-        )
+def strip_code_fences(text: str) -> str:
+    """Models sometimes wrap code in a Markdown fence despite instructions."""
+    stripped = text.strip()
+    match = _FENCE.match(stripped)
+    return match["body"] if match else stripped
 
-    if reviewer_note:
-        payload += f"\n--- HUMAN REVIEWER NOTE ---\n{reviewer_note}\n"
 
-    messages = [
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=payload),
+class CodegenResult(BaseModel):
+    scenario_id: str
+    code: str = Field(min_length=1)
+
+    @field_validator("code")
+    @classmethod
+    def _clean_code(cls, value: str) -> str:
+        cleaned = strip_code_fences(value)
+        if not cleaned:
+            raise ValueError("code must not be empty")
+        return cleaned
+
+
+class CodegenBackend(Protocol):
+    """Implemented in llm/client.py (P5): model choice, fallback, MCP tools, parse retry."""
+
+    def generate(self, system_prompt: str, user_payload: str) -> tuple[CodegenResult, str]:
+        """Return the structured result and the model string actually used."""
+        ...
+
+
+# ------------------------------------------------------------------ pure helpers
+def load_prompt(prompt_path: Path = PROMPT_PATH, reference_dir: Path = REFERENCE_DIR) -> str:
+    template = prompt_path.read_text(encoding="utf-8")
+    examples = [
+        f"### {spec.name}\n\n```typescript\n{spec.read_text(encoding='utf-8').rstrip()}\n```"
+        for spec in sorted(reference_dir.glob("*.spec.ts"))
     ]
-
-    # Execute LLM call
-    response = llm_client.invoke(messages)
-    
-    generated_code = ""
-    if hasattr(response, "content") and isinstance(response.content, str):
-        generated_code = response.content
-
-    # Clean code block markdown fences if present
-    if "```typescript" in generated_code:
-        generated_code = generated_code.split("```typescript")[1].split("```")[0].strip()
-    elif "```ts" in generated_code:
-        generated_code = generated_code.split("```ts")[1].split("```")[0].strip()
-    elif "```" in generated_code:
-        generated_code = generated_code.split("```")[1].split("```")[0].strip()
-
-    # Write file locally
-    file_path.write_text(generated_code, encoding="utf-8")
-    return file_path.as_posix()
+    if not examples:
+        raise CodegenError(f"no reference specs found in {reference_dir}")
+    return (
+        template.replace("{{evidence_import}}", EVIDENCE_IMPORT)
+        .replace("{{reference_examples}}", "\n\n".join(examples))
+    )
 
 
-def run_codegen(state: TestRunState) -> Dict[str, Any]:
-    """
-    LangGraph orchestrator node function for Code Generation.
-    Processes all scenarios in test_plan, updates generated_test_files,
-    increments regeneration count on retries, and logs model usage.
-    """
-    run_id = state.get("run_id", "default_run")
-    test_plan = state.get("test_plan")
+def scenario_id(index: int, scenario: Mapping[str, Any]) -> str:
+    """Stable id: the scenario's own `id` if P1 adds one, otherwise s1, s2, ..."""
+    raw = re.sub(r"[^A-Za-z0-9]", "", str(scenario.get("id") or ""))
+    return raw.lower() or f"s{index + 1}"
 
-    if not test_plan or not getattr(test_plan, "scenarios", None):
-        return {
-            "errors": ["run_codegen: No scenarios found in state.test_plan"],
-            "terminal_status": "BLOCKED",
-        }
 
-    # Extract LLM client configured specifically for codegen or generic fallback
-    llm_client = state.get("llm_clients", {}).get("codegen") or state.get("llm_client")
-    
-    # Retrieve validation errors and reviewer note if this execution is a regeneration retry
-    validation_errors = state.get("validation_errors")
-    reviewer_note = state.get("reviewer_note")
-    
-    # Manage retry counter
-    current_retry_count = state.get("generation_retry_count", 0)
-    if validation_errors or reviewer_note:
-        current_retry_count += 1
+def slugify(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:50] or "scenario"
 
-    generated_files: List[str] = []
 
-    # Iterate through scenarios and generate spec files
-    for scenario in test_plan.scenarios:
-        generated_path = generate_scenario_code(
-            scenario=scenario,
-            run_id=run_id,
-            llm_client=llm_client,
-            validation_errors=validation_errors,
-            reviewer_note=reviewer_note,
-        )
-        generated_files.append(generated_path)
+def spec_file_name(sid: str, scenario_name: str) -> str:
+    return f"{sid}-{slugify(scenario_name)}.spec.ts"
 
-    # Track model metadata
-    models_used = state.get("models_used", {}).copy()
-    model_name = getattr(llm_client, "model_name", None) or getattr(llm_client, "model", "default_codegen_model")
-    models_used["codegen"] = model_name
 
-    return {
-        "generated_test_files": generated_files,
-        "generation_retry_count": current_retry_count,
-        "validation_status": None,  # Reset status so validate node re-evaluates
-        "models_used": models_used,
+_ERROR_FILE = re.compile(r"^\[[^\]]+\]\s+(?P<file>[^\s:]+\.spec\.ts)")
+
+
+def failing_scenario_ids(validation_errors: Sequence[str], known_ids: set[str]) -> set[str]:
+    """Attribute validator errors to scenarios via the filename prefix.
+    Any error that cannot be attributed means we regenerate everything."""
+    failing: set[str] = set()
+    for error in validation_errors:
+        match = _ERROR_FILE.match(error)
+        sid = match["file"].split("-", 1)[0] if match else None
+        if sid not in known_ids:
+            return set(known_ids)
+        failing.add(sid)
+    return failing
+
+
+def build_user_payload(
+    scenario: Mapping[str, Any],
+    sid: str,
+    target_url: str | None,
+    previous_code: str | None = None,
+    validation_errors: Sequence[str] = (),
+    reviewer_note: str | None = None,
+) -> str:
+    payload = {
+        "scenario": {**{k: v for k, v in scenario.items() if k != "status"}, "id": sid},
+        "target_url": target_url,
+        "previous_code": previous_code,
+        "validation_errors": list(validation_errors)[:MAX_ERRORS_IN_PAYLOAD],
+        "reviewer_note": reviewer_note,
     }
+    return json.dumps(payload, ensure_ascii=False, indent=2)
 
+
+def write_spec(tests_dir: Path, file_name: str, code: str) -> Path:
+    tests_dir.mkdir(parents=True, exist_ok=True)
+    path = tests_dir / file_name
+    path.write_text(code.rstrip() + "\n", encoding="utf-8")
+    return path
+
+
+def generate_one(
+    backend: CodegenBackend,
+    system_prompt: str,
+    *,
+    scenario: Mapping[str, Any],
+    sid: str,
+    target_url: str | None,
+    previous_code: str | None,
+    validation_errors: Sequence[str],
+    reviewer_note: str | None,
+) -> tuple[str, str]:
+    payload = build_user_payload(scenario, sid, target_url, previous_code, validation_errors, reviewer_note)
+    result, model = backend.generate(system_prompt, payload)
+    if result.scenario_id.casefold() != sid:
+        raise CodegenError(f"model returned scenario_id {result.scenario_id!r}, expected {sid!r}")
+    return result.code, model
+
+
+def _resolve_url(raw: Any) -> str | None:
+    """state['target_url'] may be a plain string or a {url, source} mapping."""
+    return raw.get("url") if isinstance(raw, Mapping) else raw
+
+
+def _existing_files(paths: Sequence[str] | None) -> dict[str, Path]:
+    return {Path(p).name.split("-", 1)[0]: Path(p) for p in (paths or [])}
+
+
+def _select_scenarios(ids: list[str], existing: dict[str, Path], errors: Sequence[str]) -> set[str]:
+    if not existing or not errors:
+        return set(ids)  # first pass, or a human-requested regeneration
+    return {i for i in ids if i not in existing} | failing_scenario_ids(errors, set(ids))
+
+
+# ------------------------------------------------------------------ LangGraph node
+def run_codegen(
+    state: Mapping[str, Any],
+    *,
+    backend: CodegenBackend,
+    runs_root: Path = PROJECT_ROOT / "runs",
+    system_prompt: str | None = None,
+) -> dict[str, Any]:
+    """LangGraph node. Returns a partial state update and never raises."""
+    errors = list(state.get("errors", []))
+    try:
+        scenarios = list(state.get("test_plan") or [])
+        if not scenarios:
+            raise CodegenError("test_plan is empty")
+        prompt = system_prompt or load_prompt()
+        ids = [scenario_id(i, s) for i, s in enumerate(scenarios)]
+        files = _existing_files(state.get("generated_test_files"))
+        validation_errors = list(state.get("validation_errors") or [])
+        todo = _select_scenarios(ids, files, validation_errors)
+        tests_dir = Path(runs_root) / str(state["run_id"]) / "tests"
+        target_url = _resolve_url(state.get("target_url"))
+        model_used: str | None = None
+
+        for sid, scenario in zip(ids, scenarios):
+            if sid not in todo:
+                continue
+            try:
+                previous = files[sid].read_text(encoding="utf-8") if sid in files and files[sid].is_file() else None
+                code, model_used = generate_one(
+                    backend, prompt, scenario=scenario, sid=sid, target_url=target_url,
+                    previous_code=previous, validation_errors=validation_errors if previous else (),
+                    reviewer_note=state.get("reviewer_note"),
+                )
+                files[sid] = write_spec(tests_dir, spec_file_name(sid, scenario["name"]), code)
+            except Exception as exc:  # one bad scenario must not stop the others
+                logger.exception("codegen failed for scenario %s", sid)
+                errors.append(f"codegen[{sid}]: {exc}")
+
+        update: dict[str, Any] = {
+            "generated_test_files": [str(files[i]) for i in ids if i in files],
+            "errors": errors,
+        }
+        if model_used:
+            update["models_used"] = {**state.get("models_used", {}), "codegen": model_used}
+        return update
+    except Exception as exc:  # node invariant: catch into state.errors, the report still runs
+        logger.exception("codegen node failed")
+        return {"errors": [*errors, f"codegen: {exc}"]}

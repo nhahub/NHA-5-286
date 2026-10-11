@@ -46,6 +46,7 @@ ai-test = "main:main"
 testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
+markers = ["integration: needs Node, tsc and Playwright installed"]
 
 [tool.hatch.build.targets.wheel]
 packages = [

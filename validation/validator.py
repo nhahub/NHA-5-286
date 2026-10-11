@@ -1,109 +1,189 @@
 """
-Purpose: Deterministic validator — checks that generated .spec.ts files compile and use the Playwright API correctly.
-Reads: generated_test_files
+Purpose: Deterministic validator. Checks that generated .spec.ts files follow our lint rules,
+         type-check under tsc, and are loadable by `playwright test --list`.
+Reads: generated_test_files, generation_retry_count
 Writes: validation_status, validation_errors, generation_retry_count
 Must not: rewrite code or judge business correctness
 """
+from __future__ import annotations
 
+import json
+import os
 import re
+import shutil
 import subprocess
+import uuid
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Tuple
-from graph.state import TestRunState
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # graph/state.py is owned by P5; keep this module importable without it
+    from graph.state import TestRunState  # noqa: F401
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+EVIDENCE_MODULE = "@support/evidence"
+SUBPROCESS_TIMEOUT_S = 90
+MAX_REPORTED_ISSUES = 20
 
 
-def check_evidence_fixture_import(file_path: Path) -> List[str]:
-    """
-    Checks that the spec file imports test and expect from the evidence fixture,
-    never directly from @playwright/test.
-    """
-    errors = []
-    if not file_path.exists():
-        return [f"File not found: {file_path.as_posix()}"]
-
-    content = file_path.read_text(encoding="utf-8")
-
-    # Check for direct forbidden import from @playwright/test
-    if re.search(r"import\s+.*?\b(test|expect)\b.*?from\s+['\"]@playwright/test['\"]", content):
-        errors.append(
-            f"Rule Violation in {file_path.name}: Direct import from '@playwright/test' is forbidden. "
-            f"Must import {{ test, expect }} from the custom evidence fixture."
-        )
-
-    # Check for presence of custom evidence fixture import
-    if "evidence.fixture" not in content and "fixtures/" not in content:
-        errors.append(
-            f"Rule Violation in {file_path.name}: Spec file must import test/expect from the evidence fixture."
-        )
-
-    return errors
+class ToolchainError(RuntimeError):
+    """The validation tooling itself is broken (not the generated code)."""
 
 
-def validate_spec_file(file_path: str) -> Tuple[bool, List[str]]:
-    """
-    Runs tsc --noEmit and lint checks on a single spec file.
-    Returns (True, []) on success; (False, [errors]) on failure.
-    """
-    path = Path(file_path)
-    errors: List[str] = []
+@dataclass(frozen=True)
+class Issue:
+    rule: str
+    message: str
+    file: str
+    line: int | None = None
 
-    # 1. Lint Rule: Check Evidence Fixture Import
-    import_errors = check_evidence_fixture_import(path)
-    errors.extend(import_errors)
+    def format(self) -> str:
+        where = f"{self.file}:{self.line}" if self.line else self.file
+        return f"[{self.rule}] {where} {self.message}"
 
-    # 2. TypeScript Type Check (tsc --noEmit)
+
+# --------------------------------------------------------------------------- lint
+_IMPORT = re.compile(r"import\s+(?P<what>[^;]*?)\s+from\s+['\"](?P<mod>[^'\"]+)['\"]", re.S)
+_LINE_COMMENT = re.compile(r"(?m)(^|\s)//.*$")
+_BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.S)
+
+_PATTERN_RULES: tuple[tuple[str, str, str], ...] = (
+    ("no-only-skip", r"\b(?:test|test\.describe)\.(?:only|skip|fixme)\b",
+     "test.only/skip/fixme is forbidden"),
+    ("no-fixed-wait", r"\bwaitForTimeout\s*\(",
+     "waitForTimeout is forbidden; use web-first assertions"),
+    ("env-credentials", r"process\.env\.(?:USERNAME|PASSWORD)\b",
+     "use process.env.TEST_USERNAME / TEST_PASSWORD"),
+    ("hardcoded-secret", r"(?i)password[^\n]*\.fill\(\s*['\"`]",
+     "password must come from process.env.TEST_PASSWORD, not a literal"),
+    ("no-any", r":\s*any\b|\bas\s+any\b", "avoid the 'any' type"),
+)
+
+
+def _strip_comments(source: str) -> str:
+    no_block = _BLOCK_COMMENT.sub(lambda m: "\n" * m.group().count("\n"), source)
+    return _LINE_COMMENT.sub(r"\1", no_block)
+
+
+def lint_source(source: str, file: str) -> list[Issue]:
+    code = _strip_comments(source)
+    issues: list[Issue] = []
+
+    def add(rule: str, message: str, index: int | None = None) -> None:
+        line = code.count("\n", 0, index) + 1 if index is not None else None
+        issues.append(Issue(rule, message, file, line))
+
+    imports = list(_IMPORT.finditer(code))
+    if not any(m["mod"] == EVIDENCE_MODULE and re.search(r"\btest\b", m["what"]) for m in imports):
+        add("evidence-import", f"must import {{ test, expect }} from '{EVIDENCE_MODULE}'")
+    for m in imports:
+        if m["mod"] == "@playwright/test" and re.search(r"\b(?:test|expect)\b", m["what"]):
+            add("no-direct-playwright-import",
+                "import test/expect from the evidence fixture, not '@playwright/test'", m.start())
+
+    for rule, pattern, message in _PATTERN_RULES:
+        for m in re.finditer(pattern, code):
+            add(rule, message, m.start())
+
+    test_calls = len(re.findall(r"(?<![.\w])test\s*\(", code))
+    if test_calls != 1:
+        add("single-test", f"expected exactly one test() call, found {test_calls}")
+    return issues
+
+
+# --------------------------------------------------------------------- subprocesses
+def _run_npx(args: list[str], extra_env: Mapping[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    npx = shutil.which("npx")  # resolves npx.cmd on Windows
+    if npx is None:
+        raise ToolchainError("npx not found on PATH; is Node.js installed?")
     try:
-        cmd = ["npx", "tsc", "--noEmit"]
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=False
+        return subprocess.run(
+            [npx, *args], cwd=PROJECT_ROOT, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=SUBPROCESS_TIMEOUT_S,
+            check=False, env={**os.environ, **(extra_env or {})},
         )
-        if result.returncode != 0:
-            output = result.stdout or result.stderr
-            # Extract error lines specific to this file or standard TypeScript TS-errors
-            for line in output.splitlines():
-                if path.name in line or "error TS" in line:
-                    errors.append(line.strip())
-            if not errors and output.strip():
-                errors.append(output.strip())
-    except subprocess.TimeoutExpired:
-        errors.append(f"TypeScript compilation check timed out for {path.name}.")
-    except Exception as e:
-        errors.append(f"Failed to execute tsc: {str(e)}")
-
-    is_valid = len(errors) == 0
-    return is_valid, errors
+    except subprocess.TimeoutExpired as exc:
+        raise ToolchainError(f"'npx {' '.join(args[:2])}' timed out after {SUBPROCESS_TIMEOUT_S}s") from exc
+    except OSError as exc:
+        raise ToolchainError(f"could not start npx: {exc}") from exc
 
 
-def validate_all(state: TestRunState) -> dict:
-    """
-    LangGraph node function for deterministic validation.
-    Iterates over generated_test_files, checks compilation/linting,
-    and updates validation_status, validation_errors, and generation_retry_count.
-    """
-    generated_files = state.get("generated_test_files", [])
-    if not generated_files:
-        return {
-            "validation_status": "invalid",
-            "validation_errors": ["No generated test files provided for validation."],
-        }
+_TSC_LINE = re.compile(r"^(?P<file>.+?)\((?P<line>\d+),\d+\): error (?P<code>TS\d+): (?P<msg>.+)$")
 
-    all_errors: List[str] = []
-    for file_path in generated_files:
-        _, errors = validate_spec_file(file_path)
-        all_errors.extend(errors)
 
-    is_valid = len(all_errors) == 0
-    validation_status = "valid" if is_valid else "invalid"
+def parse_tsc_output(output: str, files: set[Path]) -> list[Issue]:
+    """Keep only diagnostics located in the given spec files."""
+    issues: list[Issue] = []
+    for raw in output.splitlines():
+        m = _TSC_LINE.match(raw.strip())
+        if m and (PROJECT_ROOT / m["file"]).resolve() in files:
+            issues.append(Issue(m["code"], m["msg"], Path(m["file"]).name, int(m["line"])))
+    return issues
 
-    # Increment retry counter only on failed validation
-    current_retry_count = state.get("generation_retry_count", 0)
 
-    return {
-        "validation_status": validation_status,
-        "validation_errors": all_errors,
-        "generation_retry_count": current_retry_count,
-    }
+def _typecheck(files: list[Path]) -> list[Issue]:
+    cfg = PROJECT_ROOT / f"tsconfig.validate.{uuid.uuid4().hex}.json"
+    cfg.write_text(json.dumps({"extends": "./tsconfig.json", "include": [],
+                               "files": [str(f) for f in files]}), encoding="utf-8")
+    try:
+        proc = _run_npx(["tsc", "-p", cfg.name, "--noEmit", "--pretty", "false"])
+    finally:
+        cfg.unlink(missing_ok=True)
+    if proc.returncode == 0:
+        return []
+    issues = parse_tsc_output(proc.stdout + proc.stderr, {f.resolve() for f in files})
+    if not issues:  # tsc failed, but not because of the generated specs
+        raise ToolchainError(f"tsc failed outside the generated specs: {(proc.stdout + proc.stderr).strip()[:500]}")
+    return issues
+
+
+def _list_tests(files: list[Path], run_dir: Path) -> list[Issue]:
+    proc = _run_npx(["playwright", "test", "--list"], {"RUN_DIR": str(run_dir)})
+    if proc.returncode == 0:
+        return []
+    return [Issue("playwright-list", (proc.stdout + proc.stderr).strip()[:800], files[0].name)]
+
+
+# ------------------------------------------------------------------------- public
+def validate_files(paths: Sequence[str | Path], run_dir: Path | None = None) -> list[Issue]:
+    issues: list[Issue] = []
+    specs: list[Path] = []
+    for p in map(Path, paths):
+        if not p.is_file():
+            issues.append(Issue("file-missing", "file not found", p.name))
+        elif not p.name.endswith(".spec.ts"):
+            issues.append(Issue("file-name", "generated file must end with .spec.ts", p.name))
+        else:
+            issues.extend(lint_source(p.read_text(encoding="utf-8"), p.name))
+            specs.append(p.resolve())
+    if specs:
+        issues.extend(_typecheck(specs))
+        if not issues:  # `--list` would only repeat compile errors
+            issues.extend(_list_tests(specs, run_dir or specs[0].parent.parent))
+    return issues
+
+
+def validate_spec_file(file_path: str) -> tuple[bool, list[str]]:
+    issues = validate_files([file_path])
+    return not issues, [i.format() for i in issues]
+
+
+def validate_all(state: Mapping[str, Any]) -> dict[str, Any]:
+    """LangGraph node. Returns a partial state update."""
+    files = state.get("generated_test_files") or []
+    retries = state.get("generation_retry_count", 0)
+    if not files:
+        return {"validation_status": "invalid",
+                "validation_errors": ["[no-files] no generated test files to validate"],
+                "generation_retry_count": retries + 1}
+    try:
+        issues = validate_files(files)
+    except ToolchainError as exc:
+        return {"validation_status": "error",
+                "errors": [*state.get("errors", []), f"validator: {exc}"]}
+    if not issues:
+        return {"validation_status": "valid", "validation_errors": []}
+    return {"validation_status": "invalid",
+            "validation_errors": [i.format() for i in issues[:MAX_REPORTED_ISSUES]],
+            "generation_retry_count": retries + 1}
