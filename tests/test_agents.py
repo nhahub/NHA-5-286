@@ -1,7 +1,18 @@
 """
 Purpose: Tests for agents/ package — Planner, Code Generation, Failure Analyzer, Fix Proposal.
 """
+from __future__ import annotations
 
+import json
+from pathlib import Path
+
+import pytest
+from pydantic import ValidationError
+
+from agents.codegen import (
+    CodegenError, CodegenResult, build_user_payload, failing_scenario_ids, load_prompt,
+    run_codegen, scenario_id, slugify, spec_file_name, strip_code_fences,
+)
 
 
 # --- planner ---
@@ -17,18 +28,7 @@ Purpose: Tests for agents/ package — Planner, Code Generation, Failure Analyze
 
 # --- codegen ---
 """Purpose: Tests for agents/codegen.py (no LLM, no Node)."""
-from __future__ import annotations
 
-import json
-from pathlib import Path
-
-import pytest
-from pydantic import ValidationError
-
-from agents.codegen import (
-    CodegenError, CodegenResult, build_user_payload, failing_scenario_ids, load_prompt,
-    run_codegen, scenario_id, slugify, spec_file_name, strip_code_fences,
-)
 
 
 class FakeBackend:
