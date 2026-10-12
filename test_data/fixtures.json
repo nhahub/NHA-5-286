@@ -55,6 +55,23 @@
     "default": 3,
     "minimum": 1,
     "maximum": 5
+  },
+
+  "version": 1,
+  "_note": "No secret values here. Credentials come from environment variables (.env, never committed).",
+  "credentials": {
+    "standard": { "username_env": "TEST_USERNAME", "password_env": "TEST_PASSWORD" },
+    "locked":   { "username_env": "TEST_LOCKED_USERNAME", "password_env": "TEST_LOCKED_PASSWORD" }
+  },
+  "checkout": {
+    "first_name": "Test",
+    "last_name": "User",
+    "postal_code": "12345"
+  },
+  "arabic_samples": {
+    "todo_item": "شراء الخبز",
+    "todo_item_2": "إنهاء التقرير"
   }
+  
 }
 
