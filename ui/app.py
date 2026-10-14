@@ -1,32 +1,26 @@
 """Responsive Gradio 6 dashboard for AI assisted test automation."""
 
 from __future__ import annotations
-
-
-
 import html
-
 import os
-
 import re
-
 import textwrap
-
 import zipfile
-
 from datetime import datetime, timezone
-
 from pathlib import Path
-
 from xml.sax.saxutils import escape
-
-
-
 import gradio as gr
+
+from uuid import uuid4
+from langgraph.types import Command
+from graph.build_graph import build_graph
 
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+WORKFLOW = build_graph()
+
 
 EXPORT_DIR = ROOT / "runs" / "sandbox_reports"
 
@@ -668,7 +662,200 @@ def export_report(run: dict | None, format_name: str) -> tuple[str, str | None]:
 
 
 
+def start_graph_workflow(
+    url,
+    requirements,
+    browser,
+    mode,
+    maximum,
+    timeout,
+    authorization,
+    use_sandbox,
+    mock_outcome,
+    mock_risky,
+):
+    """
+    Start the real LangGraph workflow in sandbox mode.
 
+    Browser execution and AI agents are simulated.
+    """
+
+    if not url or not requirements:
+        return (
+            "Please enter URL and requirements.",
+            None,
+            "No workflow started.",
+        )
+
+    if not re.match(r"^https?://[^\s/]+", url.strip(), re.I):
+        return (
+            "Please enter a valid http:// or https:// URL.",
+            None,
+            "No workflow started.",
+        )
+
+    if not authorization:
+        return (
+            "You must confirm authorization.",
+            None,
+            "No workflow started.",
+        )
+
+    if not use_sandbox:
+        return (
+            "Live workflow is not connected yet.",
+            None,
+            "Live execution unavailable.",
+        )
+
+    thread_id = str(uuid4())
+
+    config = {
+        "configurable": {
+            "thread_id": thread_id
+        }
+    }
+
+    initial_state = {
+        "sandbox_mode": True,
+        "mock_execution_outcome": mock_outcome,
+        "mock_risky": bool(mock_risky),
+        "test_request": {
+            "url": url.strip(),
+            "requirements": requirements.strip(),
+            "scenario_cap": int(maximum),
+            "authorization": authorization,
+        },
+        "healing_retry_count": 0,
+        "errors": [],
+    }
+
+    try:
+        result = WORKFLOW.invoke(
+            initial_state,
+            config=config,
+        )
+
+    except Exception as exc:
+        return (
+            f"Workflow error: {type(exc).__name__}: {exc}",
+            None,
+            "Workflow execution failed.",
+        )
+
+    interrupts = result.get("__interrupt__", [])
+
+    session = {
+        "thread_id": thread_id,
+        "workflow_result": result,
+        "waiting_for_approval": bool(interrupts),
+    }
+
+    if interrupts:
+        approval = interrupts[0].value
+
+        details = (
+            "### Human Fix Approval Required\n\n"
+            f"**Risky:** {approval.get('risky')}\n\n"
+            f"**Reason:** {approval.get('reason')}\n\n"
+            "**Proposed Patch:**\n\n"
+            "```diff\n"
+            f"{approval.get('patch_diff', '')}\n"
+            "```"
+        )
+
+        return (
+            "Workflow paused for human approval.",
+            session,
+            details,
+        )
+
+    status = result.get("terminal_status", "UNKNOWN")
+
+    return (
+        f"Workflow completed: {status} (SIMULATED)",
+        session,
+        f"### Final Status: {status}\n\nSandbox execution.",
+    )
+
+
+
+def resume_graph_workflow(session, decision):
+    """
+    Resume a paused LangGraph workflow after human approval.
+    """
+
+    if not session or not session.get("waiting_for_approval"):
+        return (
+            "No pending approval request.",
+            session,
+            "No workflow is waiting for approval.",
+        )
+
+    if decision not in ("approved", "rejected"):
+        return (
+            "Invalid approval decision.",
+            session,
+            "Choose Approve or Reject.",
+        )
+
+    config = {
+        "configurable": {
+            "thread_id": session["thread_id"]
+        }
+    }
+
+    try:
+        result = WORKFLOW.invoke(
+            Command(resume=decision),
+            config=config,
+        )
+
+    except Exception as exc:
+        return (
+            f"Workflow error: {type(exc).__name__}: {exc}",
+            session,
+            "Failed to resume workflow.",
+        )
+
+    interrupts = result.get("__interrupt__", [])
+
+    updated_session = {
+        **session,
+        "workflow_result": result,
+        "waiting_for_approval": bool(interrupts),
+    }
+
+    if interrupts:
+        approval = interrupts[0].value
+
+        details = (
+            "### Human Approval Required\n\n"
+            f"**Risky:** {approval.get('risky')}\n\n"
+            f"**Reason:** {approval.get('reason')}\n\n"
+            "```diff\n"
+            f"{approval.get('patch_diff', '')}\n"
+            "```"
+        )
+
+        return (
+            "Workflow paused for another approval.",
+            updated_session,
+            details,
+        )
+
+    status = result.get("terminal_status", "UNKNOWN")
+
+    return (
+        f"Workflow completed: {status} (SIMULATED)",
+        updated_session,
+        (
+            f"### Final Status: {status}\n\n"
+            f"Decision: {decision}\n\n"
+            f"Healing attempts: "
+            f"{result.get('healing_retry_count', 0)}"
+        ),
+    )
 
 def build_ui() -> gr.Blocks:
 
@@ -729,6 +916,27 @@ def build_ui() -> gr.Blocks:
                                 start = gr.Button("Start Testing", variant="primary", size="lg", elem_id="start-testing")
 
                                 request_status = gr.Markdown()
+                                
+
+                                workflow_session = gr.State(None)
+
+                                approval_details = gr.Markdown(
+                                    visible=False,
+                                    label="Human Fix Approval",
+                                )
+
+                                with gr.Row(visible=False) as approval_buttons:
+                                    approve_btn = gr.Button(
+                                        "Approve Fix",
+                                        variant="primary",
+                                    )
+
+                                    reject_btn = gr.Button(
+                                        "Reject Fix",
+                                        variant="stop",
+                                    )
+
+
 
                         with gr.Column(visible=True, elem_id="progress-card-column") as progress_panel:
 
@@ -797,6 +1005,18 @@ def build_ui() -> gr.Blocks:
                         gr.HTML("<div class='card-title'>Execution mode</div><p class='muted'>Sandbox prepares a report preview from your request. It does not run agents or open a browser.</p>")
 
                         use_sandbox = gr.Checkbox(value=True, label="Use sandbox")
+                        
+
+                        mock_outcome = gr.Radio(
+                                choices=["PASS", "FAIL"],
+                                value="PASS",
+                                label="Sandbox execution outcome",
+                            )
+
+                        mock_risky = gr.Checkbox(
+                                value=False,
+                                label="Simulate risky fix",
+                            )
 
                         show_progress = gr.Checkbox(value=True, label="Show execution progress")
 
@@ -828,9 +1048,86 @@ def build_ui() -> gr.Blocks:
 
         save_llm_btn.click(save_llm_settings, inputs=[llm_provider, llm_model, llm_api_key], outputs=[llm_status, llm_state])
 
-        start.click(validate_and_prepare, inputs=[url, requirements, browser, mode, maximum, timeout, authorization, use_sandbox],
+       
+        start.click(
+            start_graph_workflow,
+            inputs=[
+                url,
+                requirements,
+                browser,
+                mode,
+                maximum,
+                timeout,
+                authorization,
+                use_sandbox,
+                mock_outcome,
+                mock_risky,
+            ],
+            outputs=[
+                request_status,
+                workflow_session,
+                approval_details,
+            ],
+        ).then(
+            lambda session: (
+                gr.update(
+                    visible=bool(
+                        session
+                        and session.get("waiting_for_approval")
+                    )
+                ),
+                gr.update(
+                    visible=bool(
+                        session
+                        and session.get("waiting_for_approval")
+                    )
+                ),
+            ),
+            inputs=workflow_session,
+            outputs=[approval_details, approval_buttons],
+        )
+        
+        approve_btn.click(
+            lambda session: resume_graph_workflow(
+                session, "approved"
+            ),
+            inputs=workflow_session,
+            outputs=[
+                request_status,
+                workflow_session,
+                approval_details,
+            ],
+        ).then(
+            lambda session: gr.update(
+                visible=bool(
+                    session
+                    and session.get("waiting_for_approval")
+                )
+            ),
+            inputs=workflow_session,
+            outputs=approval_buttons,
+        )
 
-                    outputs=[request_status, run_state, progress, metric_total, metric_pass, metric_fail, metric_skip, metric_time, scenarios_table, scenario_info])
+        reject_btn.click(
+            lambda session: resume_graph_workflow(
+                session, "rejected"
+            ),
+            inputs=workflow_session,
+            outputs=[
+                request_status,
+                workflow_session,
+                approval_details,
+            ],
+        ).then(
+            lambda session: gr.update(
+                visible=bool(
+                    session
+                    and session.get("waiting_for_approval")
+                )
+            ),
+            inputs=workflow_session,
+            outputs=approval_buttons,
+        )
 
         scenarios_table.select(scenario_details, inputs=run_state, outputs=scenario_info)
 
