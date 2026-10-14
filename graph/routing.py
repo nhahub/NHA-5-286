@@ -32,3 +32,71 @@ Must not: call any LLM, modify state, or guess the next node
 
 # def route_after_apply_fix(state: TestRunState) -> str:
 #     -> Always: return "validate"  (patched files must be re-validated before re-execution)
+
+
+
+from graph.state import TestRunState
+
+
+def route_after_execute(state: TestRunState) -> str:
+    """
+    Choose the next step after execution.
+    This function does not modify state.
+    """
+
+    status = state.get("terminal_status")
+
+    if status == "PASS":
+        return "report"
+
+    if status == "FAIL":
+        return "analyze"
+
+    if status in ("BLOCKED", "ERROR"):
+        return "report"
+
+    return "report"
+
+def route_after_fix_approval(state: TestRunState) -> str:
+    decision = state.get("approval_decision")
+
+    if decision == "approved":
+        return "apply_fix"
+
+    return "report"
+
+def route_after_intake(state: TestRunState) -> str:
+    if state.get("terminal_status") in ("BLOCKED", "ERROR"):
+        return "report"
+
+    if not state.get("target_url"):
+        return "report"
+
+    return "planner"
+
+
+def route_after_validate(state: TestRunState) -> str:
+    if state.get("terminal_status") in ("BLOCKED", "ERROR"):
+        return "report"
+
+    if state.get("validation_status") == "valid":
+        return "execute"
+
+    return "report"
+
+
+def route_after_analyze(state: TestRunState) -> str:
+    if (
+        state.get("failure_type") == "Test"
+        and state.get("healing_retry_count", 0) < 2
+    ):
+        return "fix_proposal"
+
+    return "report"
+
+
+def route_after_apply_fix(state: TestRunState) -> str:
+    if state.get("mock_fix_applied"):
+        return "validate"
+
+    return "report"
