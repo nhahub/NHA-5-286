@@ -718,7 +718,7 @@ def build_ui() -> gr.Blocks:
 
                                     browser = gr.Dropdown(["Chromium", "Firefox", "WebKit"], value="Chromium", label="Browser", elem_id="browser-control")
 
-                                    maximum = gr.Slider(1, 10, value=3, step=1, label="Maximum number of scenarios")
+                                    maximum = gr.Slider(1, 5, value=3, step=1, label="Maximum number of scenarios")
 
                                     mode = gr.Radio(["Headless", "Visible Browser"], value="Headless", label="Execution mode", elem_id="execution-mode-control")
 
