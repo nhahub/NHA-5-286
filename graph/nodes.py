@@ -7,6 +7,9 @@ Must not: perform routing decisions (routing lives in routing.py) or contain age
 
 
 from uuid import uuid4
+
+from langchain_core.runnables import RunnableConfig
+
 from graph.state import TestRunState
 
 
@@ -43,7 +46,7 @@ def planner_node(state: TestRunState) -> dict:
     return {"test_plan": scenarios}
 
 
-def codegen_node(state: TestRunState) -> dict:
+def codegen_node(state: TestRunState, config: RunnableConfig | None = None) -> dict:
     from agents.codegen import run_codegen
 
     if state.get("sandbox_mode", False):
@@ -54,9 +57,22 @@ def codegen_node(state: TestRunState) -> dict:
             backend=MockCodegenBackend(),
         )
 
-    raise NotImplementedError(
-        "Real CodeGen backend is not connected yet."
+    # Live mode: use the model the user selected in Settings. Credentials come from the
+    # per-run registry (never from graph state) and there is no fallback to the mock backend.
+    from llm.client import CodegenLLMBackend
+    from llm.settings import model_factory_for
+
+    request = state.get("test_request") or {}
+    model = request.get("codegen_model")
+    if not model:
+        raise ValueError("No codegen model selected; configure one in Settings.")
+    thread_id = ((config or {}).get("configurable") or {}).get("thread_id")
+    backend = CodegenLLMBackend(
+        model,
+        request.get("fallback_model"),
+        model_factory=model_factory_for(thread_id),
     )
+    return run_codegen(state, backend=backend)
 
 
 def validate_node(state: TestRunState) -> dict:

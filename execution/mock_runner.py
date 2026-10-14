@@ -25,7 +25,13 @@ def mock_run_execute(state: Mapping[str, Any]) -> dict:
         "mock_execution_outcome", "PASS"
     )
 
-    fix_applied = state.get("mock_fix_applied", False)
+    # Sandbox only: `mock_fixes_needed` lets tests simulate several healing cycles. When it is
+    # absent the original behaviour applies (one applied fix makes the rerun pass).
+    needed = state.get("mock_fixes_needed")
+    if needed is None:
+        fix_applied = state.get("mock_fix_applied", False)
+    else:
+        fix_applied = state.get("healing_retry_count", 0) >= int(needed)
 
     # A simulated approved fix makes the rerun pass.
     passed = requested_outcome == "PASS" or fix_applied
@@ -72,7 +78,7 @@ def mock_run_execute(state: Mapping[str, Any]) -> dict:
             "status": status,
             "tests": tests,
             "simulated": True,
-            "rerun": bool(fix_applied)
+            "rerun": bool(state.get("healing_retry_count", 0) or state.get("mock_fix_applied", False))
         },
         "execution_evidence": evidence,
         "terminal_status": status

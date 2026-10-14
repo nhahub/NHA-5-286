@@ -37,4 +37,5 @@ class TestRunState(TypedDict):
     sandbox_mode: bool                   # stop call llm but use static data
     mock_fix_applied: bool
     mock_execution_outcome: str
-    mock_risky: bool    
+    mock_risky: bool
+    mock_fixes_needed: int               # sandbox only: healing fixes needed before the simulated rerun passes
