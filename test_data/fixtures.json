@@ -1,4 +1,22 @@
 {
+  "version": 1,
+  "_note": "No secret values in this file. Credentials come from environment variables (.env, never committed); *_env fields hold variable NAMES only.",
+
+  "credentials": {
+    "standard": { "username_env": "TEST_USERNAME", "password_env": "TEST_PASSWORD" },
+    "locked":   { "username_env": "TEST_LOCKED_USERNAME", "password_env": "TEST_LOCKED_PASSWORD" }
+  },
+  "checkout": {
+    "first_name": "Test",
+    "last_name": "User",
+    "postal_code": "12345"
+  },
+  "arabic_samples": {
+    "todo_item": "شراء الخبز",
+    "todo_item_2": "إنهاء التقرير"
+  },
+
+  "_legacy_note": "LEGACY KEYS below are kept only until P1's tests read fixtures/intake_cases.json. Do not edit them; edit that file instead.",
   "sample_requirements": [
     {
       "id": "req-001",
@@ -20,16 +38,6 @@
       "authorization": true
     }
   ],
-  "users": {
-    "standard": {
-      "username": "standard_user",
-      "password": "secret_sauce"
-    },
-    "locked": {
-      "username": "locked_out_user",
-      "password": "secret_sauce"
-    }
-  },
   "blocked_urls": [
     "http://localhost:3000",
     "http://127.0.0.1:8080",
@@ -39,39 +47,8 @@
     "http://169.254.169.254"
   ],
   "model_strings": {
-    "valid": [
-      "openai:gpt-4o",
-      "openai:gpt-4o-mini",
-      "anthropic:claude-sonnet-4-6"
-    ],
-    "invalid": [
-      "gpt-4o",
-      "local:llama3",
-      "",
-      "openai/"
-    ]
+    "valid": ["openai:gpt-4o", "openai:gpt-4o-mini", "anthropic:claude-sonnet-4-6"],
+    "invalid": ["gpt-4o", "local:llama3", "", "openai/"]
   },
-  "scenario_cap_values": {
-    "default": 3,
-    "minimum": 1,
-    "maximum": 5
-  },
-
-  "version": 1,
-  "_note": "No secret values here. Credentials come from environment variables (.env, never committed).",
-  "credentials": {
-    "standard": { "username_env": "TEST_USERNAME", "password_env": "TEST_PASSWORD" },
-    "locked":   { "username_env": "TEST_LOCKED_USERNAME", "password_env": "TEST_LOCKED_PASSWORD" }
-  },
-  "checkout": {
-    "first_name": "Test",
-    "last_name": "User",
-    "postal_code": "12345"
-  },
-  "arabic_samples": {
-    "todo_item": "شراء الخبز",
-    "todo_item_2": "إنهاء التقرير"
-  }
-  
+  "scenario_cap_values": { "default": 3, "minimum": 1, "maximum": 5 }
 }
-

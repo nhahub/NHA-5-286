@@ -1,8 +1,15 @@
 {
   "failure_type": "Test",
-  "root_cause": "The locator '.todo-list li .toggle' timed out because the list item was not yet rendered in the DOM when the click was attempted. The 'Enter' keypress triggers an asynchronous React state update; the test did not wait for the new list item to appear before trying to interact with its toggle checkbox.",
-  "evidence": "TimeoutError: locator.click: Timeout 30000ms exceeded. Call log: waiting for locator('.todo-list li .toggle') — locator resolved to 0 elements. Screenshot: runs/run-20261004-abc123/artifacts/complete_todo-failed-chromium-1.png. Trace: runs/run-20261004-abc123/artifacts/complete_todo-chromium-1.zip.",
+  "subtype": "SELECTOR",
+  "confidence": "high",
+  "root_cause": "The li element rendered, but .toggle does not exist inside it (outdated selector).",
+  "evidence": [
+    "assert_visible('.todo-list li') passed",
+    "click('.todo-list li .toggle') timed out after 10000ms",
+    "artifacts: complete_todo-failed.png, trace.zip"
+  ],
+  "ruled_out": ["TIMING: li was visible before the click"],
+  "suggested_fix": "Replace '.toggle' with getByRole('checkbox') after verifying the current DOM",
   "application_bug": false,
-  "fix_required": true,
-  "subtype": "TIMING"
+  "fix_required": true
 }
