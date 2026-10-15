@@ -1,7 +1,7 @@
 """
 Purpose: Deterministic validator. Checks that generated .spec.ts files follow our lint rules,
          type-check under tsc, and are loadable by `playwright test --list`.
-Reads: generated_test_files, generation_retry_count
+Reads: generated_test_files, generation_retry_count, test_plan (only to detect missing specs)
 Writes: validation_status, validation_errors, generation_retry_count
 Must not: rewrite code or judge business correctness
 """
@@ -17,6 +17,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from agents.codegen import _sid_from_name, generatable_scenarios, spec_file_name
 
 if TYPE_CHECKING:  # graph/state.py is owned by P5; keep this module importable without it
     from graph.state import TestRunState  # noqa: F401
@@ -39,6 +41,7 @@ class Issue:
     line: int | None = None
 
     def format(self) -> str:
+        # Always "[rule] <base file name>[:line] message": codegen.py parses this to find the scenario
         where = f"{self.file}:{self.line}" if self.line else self.file
         return f"[{self.rule}] {where} {self.message}"
 
@@ -48,11 +51,20 @@ _IMPORT = re.compile(r"import\s+(?P<what>[^;]*?)\s+from\s+['\"](?P<mod>[^'\"]+)[
 _LINE_COMMENT = re.compile(r"(?m)(^|\s)//.*$")
 _BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.S)
 
+# Every hard rule in prompts/codegen.md must have a matching rule here.
 _PATTERN_RULES: tuple[tuple[str, str, str], ...] = (
     ("no-only-skip", r"\b(?:test|test\.describe)\.(?:only|skip|fixme)\b",
      "test.only/skip/fixme is forbidden"),
+    ("no-describe", r"\btest\.describe\b",
+     "test.describe is forbidden; use exactly one test() per file"),
     ("no-fixed-wait", r"\bwaitForTimeout\s*\(",
      "waitForTimeout is forbidden; use web-first assertions"),
+    ("no-evaluate", r"\.(?:evaluate|evaluateHandle|\$eval|\$\$eval)\s*\(",
+     "page.evaluate/evaluateHandle/$eval is forbidden; use locator actions"),
+    ("no-custom-timeout", r"\btest\.(?:setTimeout|slow)\s*\(|\btimeout\s*:",
+     "custom timeouts are forbidden; the global timeouts are fixed"),
+    ("no-networkidle", r"networkidle",
+     "never wait for 'networkidle'; use web-first assertions"),
     ("env-credentials", r"process\.env\.(?:USERNAME|PASSWORD)\b",
      "use process.env.TEST_USERNAME / TEST_PASSWORD"),
     ("hardcoded-secret", r"(?i)password[^\n]*\.fill\(\s*['\"`]",
@@ -139,13 +151,34 @@ def _typecheck(files: list[Path]) -> list[Issue]:
 
 
 def _list_tests(files: list[Path], run_dir: Path) -> list[Issue]:
-    proc = _run_npx(["playwright", "test", "--list"], {"RUN_DIR": str(run_dir)})
+    names = [f.name for f in files]
+    # Base names act as file filters, so only these specs are loaded
+    proc = _run_npx(["playwright", "test", "--list", *names], {"RUN_DIR": str(run_dir)})
     if proc.returncode == 0:
         return []
-    return [Issue("playwright-list", (proc.stdout + proc.stderr).strip()[:800], files[0].name)]
+    output = (proc.stdout + proc.stderr).strip()
+    if "No tests found" in output:  # config problem (testDir / RUN_DIR), not a generated-code problem
+        raise ToolchainError(f"playwright found no tests; check testDir/RUN_DIR in playwright.config.ts: {output[:300]}")
+    # Attribute the failure to the spec(s) named in the output. If none is named, use a file name
+    # that does not end in .spec.ts so codegen treats the error as unattributable and regenerates all.
+    named = [n for n in names if n in output]
+    return [Issue("playwright-list", output[:800], n) for n in (named or ["playwright"])]
 
 
 # ------------------------------------------------------------------------- public
+def missing_spec_issues(test_plan: Sequence[Mapping[str, Any]] | None, paths: Sequence[str | Path]) -> list[Issue]:
+    """A scenario that should have a spec but has none must fail validation,
+    otherwise a run could end as PASS with a scenario that never ran."""
+    have = {_sid_from_name(str(p)) for p in paths}
+    issues: list[Issue] = []
+    for sid, scenario in generatable_scenarios(list(test_plan or [])):
+        if sid not in have:
+            # The expected file name lets codegen attribute the error to this scenario only
+            name = spec_file_name(sid, str(scenario.get("name") or sid))
+            issues.append(Issue("missing-spec", "no spec file was generated for this scenario", name))
+    return issues
+
+
 def validate_files(paths: Sequence[str | Path], run_dir: Path | None = None) -> list[Issue]:
     issues: list[Issue] = []
     specs: list[Path] = []
@@ -171,14 +204,16 @@ def validate_spec_file(file_path: str) -> tuple[bool, list[str]]:
 
 def validate_all(state: Mapping[str, Any]) -> dict[str, Any]:
     """LangGraph node. Returns a partial state update."""
-    files = state.get("generated_test_files") or []
+    files = list(state.get("generated_test_files") or [])
     retries = state.get("generation_retry_count", 0)
+    missing = missing_spec_issues(state.get("test_plan"), files)
     if not files:
+        errors = [i.format() for i in missing] or ["[no-files] no generated test files to validate"]
         return {"validation_status": "invalid",
-                "validation_errors": ["[no-files] no generated test files to validate"],
+                "validation_errors": errors[:MAX_REPORTED_ISSUES],
                 "generation_retry_count": retries + 1}
     try:
-        issues = validate_files(files)
+        issues = [*missing, *validate_files(files)]
     except ToolchainError as exc:
         return {"validation_status": "error",
                 "errors": [*state.get("errors", []), f"validator: {exc}"]}

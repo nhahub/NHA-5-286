@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 from agents.codegen import (
     CodegenError, CodegenResult, build_user_payload, failing_scenario_ids, load_prompt,
-    run_codegen, scenario_id, slugify, spec_file_name, strip_code_fences,
+    run_codegen, scenario_id, slugify, spec_file_name, strip_code_fences, generatable_scenarios,errors_for
 )
 
 
@@ -152,6 +152,106 @@ def test_empty_plan_is_recorded_not_raised(tmp_path: Path) -> None:
 def test_missing_run_id_is_recorded_not_raised(tmp_path: Path) -> None:
     out = run({"test_plan": PLAN}, FakeBackend(), tmp_path)
     assert any(e.startswith("codegen") for e in out["errors"])
+
+class OtherModelBackend(FakeBackend):
+    """Same as FakeBackend but reports a different model (simulates a fallback model)."""
+
+    def generate(self, system_prompt: str, user_payload: str):
+        result, _ = super().generate(system_prompt, user_payload)
+        return result, "openai:gpt-4o-mini"
+
+
+# ---- helpers added with the validator work
+def test_errors_for_keeps_only_the_scenarios_own_errors() -> None:
+    e1 = "[TS1] s1-first-one.spec.ts:1 x"
+    e2 = "[TS2] s2-second-one.spec.ts:2 y"
+    general = "[x] boom"
+    assert errors_for("s1", [e1, e2, general]) == [e1]
+    assert errors_for("s3", [e1, e2, general]) == [general]  # no own errors: only file-less ones
+
+
+def test_generatable_scenarios_skips_blocked_and_keeps_positions() -> None:
+    plan = [{"name": "Login", "status": "BLOCKED: missing test data"}, {"name": "Add"}]
+    assert [sid for sid, _ in generatable_scenarios(plan)] == ["s2"]
+
+
+def test_duplicate_ids_fall_back_to_positional_ids() -> None:
+    plan = [{"id": "a", "name": "One"}, {"id": "a", "name": "Two"}]
+    assert [sid for sid, _ in generatable_scenarios(plan)] == ["s1", "s2"]
+
+
+def test_windows_paths_in_errors_map_to_the_scenario() -> None:
+    error = r"[TS2339] C:\proj\runs\a\tests\s2-second-one.spec.ts:7 boom"
+    assert failing_scenario_ids([error], {"s1", "s2"}) == {"s2"}
+
+
+# ---- load_prompt
+def test_load_prompt_rejects_unknown_placeholder(tmp_path: Path) -> None:
+    prompt = tmp_path / "p.md"
+    prompt.write_text("{{mystery}} {{reference_examples}}", encoding="utf-8")
+    refs = tmp_path / "ref"
+    refs.mkdir()
+    (refs / "01-a.spec.ts").write_text("// a\n", encoding="utf-8")
+    with pytest.raises(CodegenError):
+        load_prompt(prompt, refs)
+
+
+def test_load_prompt_allows_braces_inside_example_code(tmp_path: Path) -> None:
+    prompt = tmp_path / "p.md"
+    prompt.write_text("{{reference_examples}}", encoding="utf-8")
+    refs = tmp_path / "ref"
+    refs.mkdir()
+    (refs / "01-a.spec.ts").write_text("const o = {{ a: 1 }};\n", encoding="utf-8")
+    assert "{{ a: 1 }}" in load_prompt(prompt, refs)
+
+
+def test_real_prompt_loads_cleanly() -> None:
+    text = load_prompt()  # the real prompts/codegen.md and reference/*.spec.ts
+    assert "@support/evidence" in text
+    assert "{{evidence_import}}" not in text and "{{reference_examples}}" not in text
+
+
+# ---- node
+def test_all_blocked_makes_no_model_calls(tmp_path: Path) -> None:
+    backend = FakeBackend()
+    plan = [{"name": "Login", "status": "BLOCKED: missing test data"}]
+    out = run(make_state(test_plan=plan), backend, tmp_path)
+    assert out == {"generated_test_files": [], "errors": []}
+    assert backend.calls == []
+
+
+def test_scenario_without_a_name_still_gets_a_file(tmp_path: Path) -> None:
+    out = run(make_state(test_plan=[{"steps": []}]), FakeBackend(), tmp_path)
+    assert [Path(p).name for p in out["generated_test_files"]] == ["s1-s1.spec.ts"]
+
+
+def test_each_scenario_receives_only_its_own_errors(tmp_path: Path) -> None:
+    first = run(make_state(), FakeBackend(), tmp_path)
+    e1 = "[a] s1-first-one.spec.ts:1 x"
+    e2 = "[b] s2-second-one.spec.ts:2 y"
+    backend = FakeBackend()
+    run(make_state(**first, validation_errors=[e1, e2]), backend, tmp_path)
+    sent = {c["scenario"]["id"]: c["validation_errors"] for c in backend.calls}
+    assert sent == {"s1": [e1], "s2": [e2]}
+
+
+def test_scenario_that_failed_to_generate_is_retried(tmp_path: Path) -> None:
+    first = run(make_state(), FakeBackend(fail_ids=("s1",)), tmp_path)
+    missing = "[missing-spec] s1-first-one.spec.ts no spec file was generated for this scenario"
+    backend = FakeBackend()
+    out = run(make_state(generated_test_files=first["generated_test_files"],
+                         validation_errors=[missing]), backend, tmp_path)
+    assert [c["scenario"]["id"] for c in backend.calls] == ["s1"]
+    assert backend.calls[0]["previous_code"] is None
+    assert [Path(p).name for p in out["generated_test_files"]] == [
+        "s1-first-one.spec.ts", "s2-second-one.spec.ts"]
+
+
+def test_models_used_keeps_every_model_across_retries(tmp_path: Path) -> None:
+    first = run(make_state(), FakeBackend(), tmp_path)
+    error = "[a] s1-first-one.spec.ts:1 x"
+    out = run(make_state(**first, validation_errors=[error]), OtherModelBackend(), tmp_path)
+    assert out["models_used"] == {"codegen": "openai:gpt-4o, openai:gpt-4o-mini"}
 
 
 # --- analyzer ---

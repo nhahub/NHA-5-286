@@ -10,7 +10,7 @@ import json
 import logging
 import re
 from collections.abc import Mapping, Sequence
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any, Protocol
 
 from pydantic import BaseModel, Field, field_validator
@@ -30,6 +30,7 @@ class CodegenError(RuntimeError):
 
 # ------------------------------------------------------------------ output contract
 _FENCE = re.compile(r"^```(?:typescript|ts)?[ \t]*\n(?P<body>.*?)\n```[ \t]*$", re.S)
+_PLACEHOLDER = re.compile(r"\{\{\s*\w+\s*\}\}")
 
 
 def strip_code_fences(text: str) -> str:
@@ -69,10 +70,15 @@ def load_prompt(prompt_path: Path = PROMPT_PATH, reference_dir: Path = REFERENCE
     ]
     if not examples:
         raise CodegenError(f"no reference specs found in {reference_dir}")
-    return (
+    prompt = (
         template.replace("{{evidence_import}}", EVIDENCE_IMPORT)
         .replace("{{reference_examples}}", "\n\n".join(examples))
     )
+    # Fail loudly on an unknown {{placeholder}}; a bare "{{" inside example code is fine.
+    leftover = _PLACEHOLDER.findall(prompt)
+    if leftover:
+        raise CodegenError(f"unreplaced placeholders in codegen prompt: {sorted(set(leftover))}")
+    return prompt
 
 
 def scenario_id(index: int, scenario: Mapping[str, Any]) -> str:
@@ -89,7 +95,18 @@ def spec_file_name(sid: str, scenario_name: str) -> str:
     return f"{sid}-{slugify(scenario_name)}.spec.ts"
 
 
-_ERROR_FILE = re.compile(r"^\[[^\]]+\]\s+(?P<file>[^\s:]+\.spec\.ts)")
+# Accepts bare file names and full paths, including Windows drive letters ("C:\...").
+_ERROR_FILE = re.compile(r"^\[[^\]]+\]\s+(?P<file>.+?\.spec\.ts)")
+
+
+def _sid_from_name(path_like: str) -> str:
+    """Scenario id = prefix of the file base name; PureWindowsPath handles / and \\ both."""
+    return PureWindowsPath(path_like).name.split("-", 1)[0]
+
+
+def _sid_from_error(error: str) -> str | None:
+    match = _ERROR_FILE.match(error)
+    return _sid_from_name(match["file"]) if match else None
 
 
 def failing_scenario_ids(validation_errors: Sequence[str], known_ids: set[str]) -> set[str]:
@@ -97,12 +114,18 @@ def failing_scenario_ids(validation_errors: Sequence[str], known_ids: set[str]) 
     Any error that cannot be attributed means we regenerate everything."""
     failing: set[str] = set()
     for error in validation_errors:
-        match = _ERROR_FILE.match(error)
-        sid = match["file"].split("-", 1)[0] if match else None
+        sid = _sid_from_error(error)
         if sid not in known_ids:
             return set(known_ids)
         failing.add(sid)
     return failing
+
+
+def errors_for(sid: str, validation_errors: Sequence[str]) -> list[str]:
+    """This scenario's own errors; if it has none, the errors that name no file at all.
+    Keeps the model from 'fixing' problems that belong to another scenario's file."""
+    own = [e for e in validation_errors if _sid_from_error(e) == sid]
+    return own or [e for e in validation_errors if _sid_from_error(e) is None]
 
 
 def build_user_payload(
@@ -154,13 +177,34 @@ def _resolve_url(raw: Any) -> str | None:
 
 
 def _existing_files(paths: Sequence[str] | None) -> dict[str, Path]:
-    return {Path(p).name.split("-", 1)[0]: Path(p) for p in (paths or [])}
+    return {_sid_from_name(p): Path(p) for p in (paths or [])}
+
+
+def _is_blocked(scenario: Mapping[str, Any]) -> bool:
+    """Scenarios already marked BLOCKED (e.g. missing test data) get no code."""
+    return str(scenario.get("status") or "").upper().startswith("BLOCKED")
+
+def generatable_scenarios(plan: Sequence[Mapping[str, Any]]) -> list[tuple[str, Mapping[str, Any]]]:
+    """(id, scenario) pairs for scenarios that need code; shared with the validator."""
+    indexed = [(i, s) for i, s in enumerate(plan) if not _is_blocked(s)]
+    ids = [scenario_id(i, s) for i, s in indexed]
+    # If the Planner repeats an id, fall back to positional ids so no file overwrites another
+    if len(set(ids)) != len(ids):
+        logger.warning("duplicate scenario ids from the Planner; using positional ids")
+        ids = [f"s{i + 1}" for i, _ in indexed]
+    return list(zip(ids, (s for _, s in indexed)))
 
 
 def _select_scenarios(ids: list[str], existing: dict[str, Path], errors: Sequence[str]) -> set[str]:
     if not existing or not errors:
         return set(ids)  # first pass, or a human-requested regeneration
     return {i for i in ids if i not in existing} | failing_scenario_ids(errors, set(ids))
+
+
+def _merge_models(previous: Any, seen: Sequence[str]) -> str:
+    """Keep every model used across retries (e.g. primary + fallback), without duplicates."""
+    earlier = [m for m in str(previous or "").split(", ") if m]
+    return ", ".join(dict.fromkeys([*earlier, *seen]))
 
 
 # ------------------------------------------------------------------ LangGraph node
@@ -174,39 +218,54 @@ def run_codegen(
     """LangGraph node. Returns a partial state update and never raises."""
     errors = list(state.get("errors", []))
     try:
-        scenarios = list(state.get("test_plan") or [])
-        if not scenarios:
+        all_scenarios = list(state.get("test_plan") or [])
+        if not all_scenarios:
             raise CodegenError("test_plan is empty")
+
+        pairs = generatable_scenarios(all_scenarios)
+        if not pairs:
+            # Not a crash: every scenario is BLOCKED, so the report ends as BLOCKED, not ERROR.
+            logger.warning("all scenarios are BLOCKED; nothing to generate")
+            return {"generated_test_files": [], "errors": errors}
+        ids = [sid for sid, _ in pairs]
+        scenarios = [s for _, s in pairs]
+
         prompt = system_prompt or load_prompt()
-        ids = [scenario_id(i, s) for i, s in enumerate(scenarios)]
         files = _existing_files(state.get("generated_test_files"))
         validation_errors = list(state.get("validation_errors") or [])
         todo = _select_scenarios(ids, files, validation_errors)
         tests_dir = Path(runs_root) / str(state["run_id"]) / "tests"
         target_url = _resolve_url(state.get("target_url"))
-        model_used: str | None = None
+        models_seen: list[str] = []
 
         for sid, scenario in zip(ids, scenarios):
             if sid not in todo:
                 continue
             try:
+                file_name = spec_file_name(sid, str(scenario.get("name") or sid))
                 previous = files[sid].read_text(encoding="utf-8") if sid in files and files[sid].is_file() else None
-                code, model_used = generate_one(
+                code, model = generate_one(
                     backend, prompt, scenario=scenario, sid=sid, target_url=target_url,
-                    previous_code=previous, validation_errors=validation_errors if previous else (),
+                    previous_code=previous,
+                    validation_errors=errors_for(sid, validation_errors) if previous else (),
                     reviewer_note=state.get("reviewer_note"),
                 )
-                files[sid] = write_spec(tests_dir, spec_file_name(sid, scenario["name"]), code)
+                if model not in models_seen:
+                    models_seen.append(model)
+                files[sid] = write_spec(tests_dir, file_name, code)
             except Exception as exc:  # one bad scenario must not stop the others
                 logger.exception("codegen failed for scenario %s", sid)
+                # TODO(P5): agree on a state field for BLOCKED "could not generate" scenarios.
                 errors.append(f"codegen[{sid}]: {exc}")
 
         update: dict[str, Any] = {
             "generated_test_files": [str(files[i]) for i in ids if i in files],
             "errors": errors,
         }
-        if model_used:
-            update["models_used"] = {**state.get("models_used", {}), "codegen": model_used}
+        if models_seen:
+            models_used = dict(state.get("models_used") or {})
+            models_used["codegen"] = _merge_models(models_used.get("codegen"), models_seen)
+            update["models_used"] = models_used
         return update
     except Exception as exc:  # node invariant: catch into state.errors, the report still runs
         logger.exception("codegen node failed")

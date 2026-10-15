@@ -9,7 +9,7 @@ import * as path from 'node:path';
  *   - TARGET_URL optional; resolved by intake, exposed as baseURL
  * Layout inside RUN_DIR: tests/, artifacts/, results.json, html-report/
  */
-const RUN_DIR = path.resolve(process.env.RUN_DIR ?? 'runs/_local');
+const RUN_DIR = path.resolve(process.env.RUN_DIR || 'runs/_local');
 
 export default defineConfig({
   testDir: path.join(RUN_DIR, 'tests'),
@@ -17,7 +17,8 @@ export default defineConfig({
   outputDir: path.join(RUN_DIR, 'artifacts'),
 
   timeout: 30_000, // per test, locked in the architecture spec
-  expect: { timeout: 5_000 },
+  expect: { timeout: 10_000 }, // generated code may not set custom timeouts
+  globalTimeout: 10 * 60_000, // hard cap for the whole run (spec: limits on run duration)
 
   fullyParallel: false,
   workers: 1,
