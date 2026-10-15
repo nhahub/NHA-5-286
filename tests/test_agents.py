@@ -13,7 +13,7 @@ from agents.codegen import (
     CodegenError, CodegenResult, build_user_payload, failing_scenario_ids, load_prompt,
     run_codegen, scenario_id, slugify, spec_file_name, strip_code_fences, generatable_scenarios,errors_for
 )
-
+from llm.errors import LLMUnavailableError
 
 # --- planner ---
 
@@ -252,6 +252,22 @@ def test_models_used_keeps_every_model_across_retries(tmp_path: Path) -> None:
     error = "[a] s1-first-one.spec.ts:1 x"
     out = run(make_state(**first, validation_errors=[error]), OtherModelBackend(), tmp_path)
     assert out["models_used"] == {"codegen": "openai:gpt-4o, openai:gpt-4o-mini"}
+
+
+
+
+class DownBackend(FakeBackend):
+    def generate(self, system_prompt: str, user_payload: str):
+        self.calls.append(json.loads(user_payload))
+        raise LLMUnavailableError("all models failed: openai:primary: down")
+
+
+def test_llm_down_stops_codegen_and_is_tagged_fatal(tmp_path: Path) -> None:
+    backend = DownBackend()
+    out = run(make_state(), backend, tmp_path)
+    assert len(backend.calls) == 1  # the second scenario is not even tried
+    assert out["errors"] == ["llm-fatal[codegen]: all models failed: openai:primary: down"]
+    assert out["generated_test_files"] == []
 
 
 # --- analyzer ---
