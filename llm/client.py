@@ -1,4 +1,3 @@
-
 """
 Purpose: Initialise and cache hosted chat models, apply call-time fallback, and run the
          Code Generation LLM call (tool loop, structured parse, one retry, usage logging).
@@ -33,6 +32,13 @@ from langchain_core.tools import BaseTool
 from pydantic import ValidationError
 
 from agents.codegen import CodegenResult
+from llm.errors import (  # noqa: F401  (re-exported: tests and callers import them from llm.client)
+    BudgetExceededError,
+    LLMError,
+    LLMUnavailableError,
+    OutputParseError,
+    redact,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +52,7 @@ MAX_TOOL_ROUNDS = 4  # tool-calling rounds per attempt before the model must ans
 MAX_PARSE_RETRIES = 1  # spec: one retry that includes the validation error
 MAX_TOOL_OUTPUT_CHARS = 6_000  # page snapshots can be huge; bound what goes back to the model
 MAX_ERROR_CHARS = 600
+REQUEST_TIMEOUT_S = 90  # one hung provider call must not freeze the whole run
 
 PROVIDER_KEY_VARS: Mapping[str, tuple[str, ...]] = {
     "openai": ("OPENAI_API_KEY",),
@@ -68,23 +75,6 @@ FINAL_ANSWER_NUDGE = (
     "The tool budget is used up. Reply now with the JSON object only, "
     "based on what you already know."
 )
-
-
-# --------------------------------------------------------------------------- errors
-class LLMError(RuntimeError):
-    """Base class for LLM-layer failures."""
-
-
-class LLMUnavailableError(LLMError):
-    """No configured model could be initialised, or every model failed."""
-
-
-class BudgetExceededError(LLMError):
-    """max_tokens_per_run or the cap on agent calls was reached. Never retried or failed over."""
-
-
-class OutputParseError(ValueError):
-    """The model reply was not a valid CodegenResult."""
 
 
 # ------------------------------------------------------------------- model creation
@@ -123,7 +113,7 @@ def get_model(model_string: str) -> BaseChatModel:
         key_vars = PROVIDER_KEY_VARS.get(provider)
         if key_vars and not any(os.environ.get(var) for var in key_vars):
             raise RuntimeError(f"missing API key for provider '{provider}': set {' or '.join(key_vars)}")
-        model = init_chat_model(cache_key)
+        model = init_chat_model(cache_key, timeout=REQUEST_TIMEOUT_S)
         _MODEL_CACHE[cache_key] = model
         return model
 
@@ -149,8 +139,9 @@ class FallbackChain:
             except BudgetExceededError:
                 raise  # a spent budget is a run-level condition; another model will not fix it
             except Exception as exc:  # unavailable model, auth error, or invalid output after its retry
-                logger.warning("model %s failed (%s); trying next candidate", name, exc)
-                failures.append(f"{name}: {exc}")
+                safe = redact(str(exc))  # provider errors can echo part of an API key
+                logger.warning("model %s failed (%s); trying next candidate", name, safe)
+                failures.append(f"{name}: {safe}")
         raise LLMUnavailableError("all models failed: " + " | ".join(failures))
 
 
@@ -174,8 +165,9 @@ def get_model_with_fallback(
         try:
             candidates.append((name, factory(name)))
         except (ValueError, RuntimeError) as exc:
-            logger.warning("model %s could not be initialised: %s", name, exc)
-            failures.append(f"{name}: {exc}")
+            safe = redact(str(exc))
+            logger.warning("model %s could not be initialised: %s", name, safe)
+            failures.append(f"{name}: {safe}")
     if not candidates:
         raise LLMUnavailableError("no usable model: " + " | ".join(failures))
     return FallbackChain(candidates)
@@ -227,7 +219,7 @@ class RunBudget:
         self.tokens_used += usage.total_tokens
 
 
-# -------------------------------------------------------------------------- parsing
+# --------------------------------------------------------------------------- parsing
 def message_text(message: BaseMessage) -> str:
     """Plain text of a reply; some providers return a list of content blocks."""
     content = message.content
@@ -250,16 +242,20 @@ def extract_json_object(text: str) -> dict[str, Any]:
     fenced = _FENCE.match(stripped)
     if fenced:
         stripped = fenced["body"].strip()
-    start = stripped.find("{")
-    if start == -1:
-        raise OutputParseError("the reply contains no JSON object")
-    try:
-        data, _ = json.JSONDecoder().raw_decode(stripped[start:])
-    except json.JSONDecodeError as exc:
-        raise OutputParseError(f"invalid JSON: {exc}") from exc
-    if not isinstance(data, dict):
-        raise OutputParseError("the JSON value must be an object")
-    return data
+    decoder = json.JSONDecoder()
+    last_error: json.JSONDecodeError | None = None
+    # Try every '{' in turn: the reply may contain braces BEFORE the real JSON object
+    for match in re.finditer(r"\{", stripped):
+        try:
+            data, _ = decoder.raw_decode(stripped[match.start():])
+        except json.JSONDecodeError as exc:
+            last_error = exc
+            continue
+        if isinstance(data, dict):
+            return data
+    if last_error is not None:
+        raise OutputParseError(f"invalid JSON: {last_error}") from last_error
+    raise OutputParseError("the reply contains no JSON object")
 
 
 def parse_codegen_output(text: str) -> CodegenResult:
@@ -285,7 +281,12 @@ def select_codegen_tools(tools: Sequence[BaseTool]) -> list[BaseTool]:
 
 
 def _run_coroutine(factory: Callable[[], Any]) -> Any:
-    """Run a coroutine from sync code, even if an event loop is already running."""
+    """Run a coroutine from sync code, even if an event loop is already running.
+
+    TODO(P5/P3): each call creates a NEW event loop. If the MCP browser session is tied to
+    one long-lived loop, tool calls will fail or lose the open page. Agree who owns the MCP
+    session before relying on this with the real Playwright MCP server.
+    """
     try:
         asyncio.get_running_loop()
     except RuntimeError:
@@ -393,6 +394,6 @@ class CodegenLLMBackend:
                 output = _invoke_tool(tool, call.get("args") or {})
                 content = _truncate(output if isinstance(output, str) else json.dumps(output, default=str))
             except Exception as exc:  # a failing tool is information for the model, not a crash
-                logger.warning("tool %s failed: %s", tool_name, exc)
-                content = f"error: {exc}"[:MAX_ERROR_CHARS]
+                logger.warning("tool %s failed: %s", tool_name, redact(str(exc)))
+                content = redact(f"error: {exc}")[:MAX_ERROR_CHARS]
         return ToolMessage(content=content, tool_call_id=call_id, name=tool_name)

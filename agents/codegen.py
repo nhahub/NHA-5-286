@@ -15,6 +15,8 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel, Field, field_validator
 
+from llm.errors import LLM_FATAL_TAG, BudgetExceededError, LLMUnavailableError, redact
+
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -184,6 +186,7 @@ def _is_blocked(scenario: Mapping[str, Any]) -> bool:
     """Scenarios already marked BLOCKED (e.g. missing test data) get no code."""
     return str(scenario.get("status") or "").upper().startswith("BLOCKED")
 
+
 def generatable_scenarios(plan: Sequence[Mapping[str, Any]]) -> list[tuple[str, Mapping[str, Any]]]:
     """(id, scenario) pairs for scenarios that need code; shared with the validator."""
     indexed = [(i, s) for i, s in enumerate(plan) if not _is_blocked(s)]
@@ -253,10 +256,18 @@ def run_codegen(
                 if model not in models_seen:
                     models_seen.append(model)
                 files[sid] = write_spec(tests_dir, file_name, code)
+            except (LLMUnavailableError, BudgetExceededError) as exc:
+                # The LLM layer is down or the budget is spent for the WHOLE run: retrying the
+                # remaining scenarios would only repeat the failure. Stop and mark it with a tag
+                # that the router turns into terminal_status = ERROR.
+                safe = redact(str(exc))
+                logger.error("LLM unavailable during codegen, stopping: %s", safe)
+                errors.append(f"{LLM_FATAL_TAG}[codegen]: {safe}")
+                break
             except Exception as exc:  # one bad scenario must not stop the others
                 logger.exception("codegen failed for scenario %s", sid)
                 # TODO(P5): agree on a state field for BLOCKED "could not generate" scenarios.
-                errors.append(f"codegen[{sid}]: {exc}")
+                errors.append(f"codegen[{sid}]: {redact(str(exc))}")
 
         update: dict[str, Any] = {
             "generated_test_files": [str(files[i]) for i in ids if i in files],
@@ -269,4 +280,4 @@ def run_codegen(
         return update
     except Exception as exc:  # node invariant: catch into state.errors, the report still runs
         logger.exception("codegen node failed")
-        return {"errors": [*errors, f"codegen: {exc}"]}
+        return {"errors": [*errors, f"codegen: {redact(str(exc))}"]}
