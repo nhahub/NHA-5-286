@@ -1,0 +1,180 @@
+{
+  "version": 3,
+  "_note": "Test vectors for intake only (URL resolution, URL safety, authorization, model strings, model resolution, config). End-to-end requirements live in test_data/fixtures.json. No secrets: only environment variable NAMES appear anywhere. tier=spec means required by the architecture spec; tier=extended is hardening. needs_mock=true means the case needs a mocked network/DNS. open_question=true means the spec does not decide the behaviour yet: agree with P1 before asserting it.",
+
+  "reason_codes": ["scheme", "loopback", "private_range", "link_local", "unspecified", "obfuscated_ip", "userinfo", "malformed"],
+
+  "url_resolution": [
+    { "id": "field", "field": "https://demo.playwright.dev/todomvc", "text": "Test adding an item.",
+      "expect": { "status": "ok", "source": "field" } },
+    { "id": "field-wins-over-text", "field": "https://demo.playwright.dev/todomvc", "text": "Also see https://other.example.org for context.",
+      "expect": { "status": "ok", "source": "field", "url": "https://demo.playwright.dev/todomvc" } },
+    { "id": "one-in-text", "field": null, "text": "On https://demo.playwright.dev/todomvc add an item.",
+      "expect": { "status": "ok", "source": "requirements" } },
+    { "id": "empty-string-field", "field": "", "text": "On https://demo.playwright.dev/todomvc add an item.",
+      "expect": { "status": "ok", "source": "requirements" } },
+    { "id": "whitespace-field", "field": "   ", "text": "On https://demo.playwright.dev/todomvc add an item.",
+      "expect": { "status": "ok", "source": "requirements" } },
+    { "id": "trailing-punctuation", "field": null, "text": "Open https://demo.playwright.dev/todomvc.",
+      "expect": { "status": "ok", "source": "requirements", "url": "https://demo.playwright.dev/todomvc" } },
+    { "id": "arabic-text-with-url", "field": null, "text": "اختبر https://demo.playwright.dev/todomvc وأضف عنصرا جديدا.",
+      "expect": { "status": "ok", "source": "requirements", "url": "https://demo.playwright.dev/todomvc" } },
+    { "id": "several-in-text", "field": null, "text": "Compare https://a.example.org with https://b.example.org.",
+      "expect": { "status": "BLOCKED", "reason": "ambiguous target URL" } },
+    { "id": "same-url-twice-in-text", "field": null, "text": "Open https://a.example.org then reload https://a.example.org.",
+      "note": "the same URL repeated counts once: extract_urls_from_text returns a deduplicated list",
+      "expect": { "status": "ok", "source": "requirements" } },
+    { "id": "none", "field": null, "text": "Test the login page.",
+      "expect": { "status": "BLOCKED", "reason": "no target URL provided" } },
+    { "id": "unsafe-field-never-falls-back", "field": "https://localhost:3000", "text": "Also https://demo.playwright.dev/todomvc",
+      "expect": { "status": "BLOCKED", "reason": "unsafe URL", "note": "the target is never guessed or substituted from the text" } },
+    { "id": "unsafe-url-in-text", "field": null, "text": "Test http://localhost:3000 please.",
+      "expect": { "status": "BLOCKED", "reason": "unsafe URL" } }
+  ],
+
+  "url_safety": {
+    "blocked": [
+      { "id": "http-localhost", "url": "http://localhost:3000", "reason_any_of": ["scheme", "loopback"], "tier": "spec" },
+      { "id": "http-loopback", "url": "http://127.0.0.1:8080", "reason_any_of": ["scheme", "loopback"], "tier": "spec" },
+      { "id": "http-192", "url": "http://192.168.1.1", "reason_any_of": ["scheme", "private_range"], "tier": "spec" },
+      { "id": "http-10", "url": "http://10.0.0.1", "reason_any_of": ["scheme", "private_range"], "tier": "spec" },
+      { "id": "http-172", "url": "http://172.16.0.1", "reason_any_of": ["scheme", "private_range"], "tier": "spec" },
+      { "id": "http-metadata", "url": "http://169.254.169.254", "reason_any_of": ["scheme", "link_local"], "tier": "spec" },
+
+      { "id": "https-localhost", "url": "https://localhost:3000", "reason_any_of": ["loopback"], "tier": "spec" },
+      { "id": "https-loopback", "url": "https://127.0.0.1:8080", "reason_any_of": ["loopback"], "tier": "spec" },
+      { "id": "https-loopback-range", "url": "https://127.1.2.3", "reason_any_of": ["loopback"], "tier": "spec" },
+      { "id": "https-10", "url": "https://10.0.0.1", "reason_any_of": ["private_range"], "tier": "spec" },
+      { "id": "https-172-low", "url": "https://172.16.0.1", "reason_any_of": ["private_range"], "tier": "spec" },
+      { "id": "https-172-high", "url": "https://172.31.255.255", "reason_any_of": ["private_range"], "tier": "spec" },
+      { "id": "https-192", "url": "https://192.168.1.1", "reason_any_of": ["private_range"], "tier": "spec" },
+      { "id": "https-metadata", "url": "https://169.254.169.254/latest/meta-data/", "reason_any_of": ["link_local"], "tier": "spec" },
+      { "id": "http-public-site", "url": "http://demo.playwright.dev/todomvc", "reason_any_of": ["scheme"], "tier": "spec" },
+
+      { "id": "x-unspecified", "url": "https://0.0.0.0", "reason_any_of": ["unspecified"], "tier": "extended" },
+      { "id": "x-ipv6-loopback", "url": "https://[::1]", "reason_any_of": ["loopback"], "tier": "extended" },
+      { "id": "x-ipv6-ula", "url": "https://[fc00::1]", "reason_any_of": ["private_range"], "tier": "extended" },
+      { "id": "x-ipv6-link-local", "url": "https://[fe80::1]", "reason_any_of": ["link_local"], "tier": "extended" },
+      { "id": "x-ipv4-mapped", "url": "https://[::ffff:127.0.0.1]", "reason_any_of": ["loopback", "obfuscated_ip"], "tier": "extended" },
+      { "id": "x-localhost-dot", "url": "https://localhost.:3000", "reason_any_of": ["loopback"], "tier": "extended" },
+      { "id": "x-localhost-case", "url": "https://LocalHost:3000", "reason_any_of": ["loopback"], "tier": "extended" },
+      { "id": "x-localhost-subdomain", "url": "https://app.localhost:3000", "reason_any_of": ["loopback"], "tier": "extended" },
+      { "id": "x-ip-decimal", "url": "https://2130706433", "reason_any_of": ["obfuscated_ip", "loopback"], "tier": "extended" },
+      { "id": "x-ip-hex", "url": "https://0x7f000001", "reason_any_of": ["obfuscated_ip", "loopback"], "tier": "extended" },
+      { "id": "x-ip-octal", "url": "https://017700000001", "reason_any_of": ["obfuscated_ip", "loopback"], "tier": "extended" },
+      { "id": "x-userinfo-loopback", "url": "https://user@127.0.0.1", "reason_any_of": ["userinfo", "loopback"], "tier": "extended" },
+      { "id": "x-userinfo-trick", "url": "https://demo.playwright.dev@127.0.0.1/", "reason_any_of": ["userinfo", "loopback"], "tier": "extended" },
+      { "id": "x-file-scheme", "url": "file:///etc/passwd", "reason_any_of": ["scheme"], "tier": "extended" },
+      { "id": "x-ftp-scheme", "url": "ftp://example.org", "reason_any_of": ["scheme"], "tier": "extended" },
+      { "id": "x-javascript-scheme", "url": "javascript:alert(1)", "reason_any_of": ["scheme", "malformed"], "tier": "extended" },
+      { "id": "x-empty", "url": "", "reason_any_of": ["malformed"], "tier": "extended" },
+      { "id": "x-not-a-url", "url": "not a url", "reason_any_of": ["malformed", "scheme"], "tier": "extended" }
+    ],
+    "allowed": [
+      { "id": "ok-todomvc", "url": "https://demo.playwright.dev/todomvc" },
+      { "id": "ok-saucedemo", "url": "https://www.saucedemo.com" },
+      { "id": "ok-port-path-query", "url": "https://example.org:8443/path?q=1" },
+      { "id": "ok-uppercase-scheme", "url": "HTTPS://Demo.Playwright.dev/todomvc" },
+      { "id": "ok-172-below-range", "url": "https://172.15.255.255", "note": "boundary: just below 172.16.0.0/12" },
+      { "id": "ok-172-above-range", "url": "https://172.32.0.1", "note": "boundary: just above 172.16.0.0/12" },
+      { "id": "ok-192-169", "url": "https://192.169.0.1", "note": "boundary: next to 192.168.0.0/16" },
+      { "id": "ok-11", "url": "https://11.0.0.1", "note": "boundary: next to 10.0.0.0/8" },
+      { "id": "ok-169-253", "url": "https://169.253.0.1", "note": "boundary: next to 169.254.0.0/16" },
+      { "id": "ok-localhost-lookalike", "url": "https://localhost.example.org", "note": "a public domain that merely starts with 'localhost'" }
+    ],
+    "http_opt_in": [
+      { "id": "http-default-blocked", "url": "http://demo.example.org", "allow_http": false, "expect": "blocked" },
+      { "id": "http-enabled-allowed", "url": "http://demo.example.org", "allow_http": true, "expect": "allowed" },
+      { "id": "http-enabled-private-still-blocked", "url": "http://10.0.0.1", "allow_http": true, "expect": "blocked" },
+      { "id": "http-enabled-localhost-still-blocked", "url": "http://localhost:3000", "allow_http": true, "expect": "blocked" }
+    ],
+    "redirect_cases": [
+      { "id": "redirect-to-loopback", "start": "https://demo.example.org/go", "redirects_to": "https://127.0.0.1/admin",
+        "expect": "blocked", "needs_mock": true, "note": "spec: re-check after redirects" },
+      { "id": "redirect-to-metadata", "start": "https://demo.example.org/go", "redirects_to": "https://169.254.169.254/latest/meta-data/",
+        "expect": "blocked", "needs_mock": true },
+      { "id": "redirect-to-http", "start": "https://demo.example.org/go", "redirects_to": "http://demo.example.org/plain",
+        "expect": "blocked", "needs_mock": true, "note": "HTTPS-only applies to redirect targets" },
+      { "id": "redirect-to-public-https", "start": "https://demo.example.org/go", "redirects_to": "https://www.example.org/home",
+        "expect": "allowed", "needs_mock": true }
+    ],
+    "dns_cases": [
+      { "id": "host-resolves-to-private", "host": "internal.example.org", "resolves_to": "10.0.0.5",
+        "expect": "blocked", "needs_mock": true, "open_question": true,
+        "note": "not required by the spec text: decide with P1 whether safety.py resolves hostnames and re-checks the IPs" },
+      { "id": "host-resolves-to-loopback", "host": "rebind.example.org", "resolves_to": "127.0.0.1",
+        "expect": "blocked", "needs_mock": true, "open_question": true }
+    ]
+  },
+
+  "authorization": {
+    "cases": [
+      { "id": "missing", "authorization": false, "expect": { "proceeds": false, "network_calls": 0 } },
+      { "id": "granted", "authorization": true, "expect": { "proceeds": true } }
+    ]
+  },
+
+  "models": {
+    "valid": ["openai:gpt-4o", "openai:gpt-4o-mini", "anthropic:claude-sonnet-4-6"],
+    "malformed": ["gpt-4o", "", "openai/", "openai:", ":gpt-4o"],
+    "local_not_allowed": ["ollama:llama3", "vllm:mistral"],
+    "unsupported_provider": ["local:llama3"],
+    "_note": "unsupported_provider has a valid provider:model format and fails later at model initialisation, not at the format check."
+  },
+
+  "model_resolution": [
+    { "id": "override-wins",
+      "request": { "planner_model": null, "codegen_model": "anthropic:claude-sonnet-4-6", "healer_model": null },
+      "default_model": "openai:gpt-4o", "fallback_model": null,
+      "env_keys_present": ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"],
+      "expect": { "planner": "openai:gpt-4o", "codegen": "anthropic:claude-sonnet-4-6", "analyzer": "openai:gpt-4o", "fix_proposal": "openai:gpt-4o" } },
+    { "id": "all-defaults",
+      "request": { "planner_model": null, "codegen_model": null, "healer_model": null },
+      "default_model": "openai:gpt-4o", "fallback_model": null,
+      "env_keys_present": ["OPENAI_API_KEY"],
+      "expect": { "planner": "openai:gpt-4o", "codegen": "openai:gpt-4o", "analyzer": "openai:gpt-4o", "fix_proposal": "openai:gpt-4o" } },
+    { "id": "blank-override-falls-back-to-default",
+      "request": { "planner_model": "", "codegen_model": "   ", "healer_model": null },
+      "default_model": "openai:gpt-4o", "fallback_model": null,
+      "env_keys_present": ["OPENAI_API_KEY"],
+      "expect": { "planner": "openai:gpt-4o", "codegen": "openai:gpt-4o", "analyzer": "openai:gpt-4o", "fix_proposal": "openai:gpt-4o" } },
+    { "id": "healer-override-covers-analyzer-and-fix-proposal",
+      "request": { "planner_model": null, "codegen_model": null, "healer_model": "openai:gpt-4o-mini" },
+      "default_model": "openai:gpt-4o", "fallback_model": null,
+      "env_keys_present": ["OPENAI_API_KEY"],
+      "expect": { "planner": "openai:gpt-4o", "codegen": "openai:gpt-4o", "analyzer": "openai:gpt-4o-mini", "fix_proposal": "openai:gpt-4o-mini" } },
+    { "id": "nothing-configured",
+      "request": { "planner_model": null, "codegen_model": null, "healer_model": null },
+      "default_model": null, "fallback_model": null,
+      "env_keys_present": [],
+      "expect": { "status": "ERROR", "reason": "no usable model", "model_calls": 0 } },
+    { "id": "missing-api-key",
+      "request": { "planner_model": null, "codegen_model": null, "healer_model": null },
+      "default_model": "openai:gpt-4o", "fallback_model": null,
+      "env_keys_present": [],
+      "expect": { "status": "ERROR", "reason": "missing API key", "model_calls": 0 } },
+    { "id": "override-provider-key-missing",
+      "request": { "planner_model": null, "codegen_model": "anthropic:claude-sonnet-4-6", "healer_model": null },
+      "default_model": "openai:gpt-4o", "fallback_model": null,
+      "env_keys_present": ["OPENAI_API_KEY"],
+      "open_question": true,
+      "expect": { "status": "ERROR", "reason": "missing API key" } },
+    { "id": "model-without-tool-calling",
+      "request": { "planner_model": "openai:no-tools-model", "codegen_model": null, "healer_model": null },
+      "default_model": "openai:gpt-4o", "fallback_model": null,
+      "env_keys_present": ["OPENAI_API_KEY"],
+      "needs_mock": true,
+      "open_question": true,
+      "expect": { "status": "ERROR", "reason": "model does not support tool calling" } }
+  ],
+
+  "config": {
+    "scenario_cap": { "default": 3, "minimum": 1, "maximum": 5, "valid": [1, 3, 5], "invalid": [0, 6, -1] },
+    "fixed_mvp": { "browser": "chromium", "headless": true, "timeout_ms": 30000 }
+  },
+
+  "secrets_policy": {
+    "credential_env_vars": ["TEST_USERNAME", "TEST_PASSWORD"],
+    "rule": "No literal passwords, tokens or API keys in any committed JSON; reference environment variable names only."
+  }
+}
