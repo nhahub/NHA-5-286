@@ -7,10 +7,19 @@ Must not: perform routing decisions (routing lives in routing.py) or contain age
 
 
 from uuid import uuid4
-
 from langchain_core.runnables import RunnableConfig
-
+from agents.codegen import run_codegen
 from graph.state import TestRunState
+ # Live mode: use the model the user selected in Settings. Credentials come from the
+ # per-run registry (never from graph state) and there is no fallback to the mock backend.
+from llm.client import CodegenLLMBackend
+from llm.settings import model_factory_for
+from execution.mock_runner import mock_run_execute
+from analysis.mock_failure import mock_propose_fix
+from analysis.mock_failure import mock_analyze
+from healing.mock_fix_approval import mock_fix_approval_node
+from healing.mock_apply_fix import mock_apply_fix
+
 
 
 def intake_node(state: TestRunState) -> dict:
@@ -47,8 +56,6 @@ def planner_node(state: TestRunState) -> dict:
 
 
 def codegen_node(state: TestRunState, config: RunnableConfig | None = None) -> dict:
-    from agents.codegen import run_codegen
-
     if state.get("sandbox_mode", False):
         from llm.mock_codegen_backend import MockCodegenBackend
 
@@ -56,12 +63,7 @@ def codegen_node(state: TestRunState, config: RunnableConfig | None = None) -> d
             state,
             backend=MockCodegenBackend(),
         )
-
-    # Live mode: use the model the user selected in Settings. Credentials come from the
-    # per-run registry (never from graph state) and there is no fallback to the mock backend.
-    from llm.client import CodegenLLMBackend
-    from llm.settings import model_factory_for
-
+        
     request = state.get("test_request") or {}
     model = request.get("codegen_model")
     if not model:
@@ -89,8 +91,6 @@ def validate_node(state: TestRunState) -> dict:
 
 def execute_node(state: TestRunState) -> dict:
     if state.get("sandbox_mode", False):
-        from execution.mock_runner import mock_run_execute
-
         return mock_run_execute(state)
 
     raise NotImplementedError(
@@ -100,8 +100,6 @@ def execute_node(state: TestRunState) -> dict:
 
 def analyze_node(state: TestRunState) -> dict:
     if state.get("sandbox_mode", False):
-        from analysis.mock_failure import mock_analyze
-
         return mock_analyze(state)
 
     raise NotImplementedError(
@@ -111,8 +109,6 @@ def analyze_node(state: TestRunState) -> dict:
 
 def fix_proposal_node(state: TestRunState) -> dict:
     if state.get("sandbox_mode", False):
-        from analysis.mock_failure import mock_propose_fix
-
         return mock_propose_fix(state)
 
     raise NotImplementedError(
@@ -121,15 +117,11 @@ def fix_proposal_node(state: TestRunState) -> dict:
 
 
 def fix_approval_node(state: TestRunState) -> dict:
-    from healing.mock_fix_approval import mock_fix_approval_node
-
     return mock_fix_approval_node(state)
 
 
 def apply_fix_node(state: TestRunState) -> dict:
     if state.get("sandbox_mode", False):
-        from healing.mock_apply_fix import mock_apply_fix
-
         return mock_apply_fix(state)
 
     raise NotImplementedError(
