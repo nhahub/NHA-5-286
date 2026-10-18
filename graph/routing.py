@@ -85,14 +85,43 @@ def route_after_validate(state: TestRunState) -> str:
     return "report"
 
 
+
 def route_after_analyze(state: TestRunState) -> str:
-    if (
-        state.get("failure_type") == "Test"
-        and state.get("healing_retry_count", 0) < 2
-    ):
+
+    # 1. Stop if the run already failed
+    if state.get("terminal_status") in ("ERROR", "BLOCKED"):
+        return "report"
+
+    # 2. Only Test failures can be healed
+    if state.get("failure_type") != "Test":
+        return "report"
+
+    # 3. Maximum two healing attempts
+    if state.get("healing_retry_count", 0) >= 2:
+        return "report"
+
+    # 4. Preserve existing Sandbox behavior
+    if state.get("sandbox_mode", False):
         return "fix_proposal"
 
-    return "report"
+    # 5. Check the real Analyzer output
+    analysis = state.get("failure_analysis")
+
+    if not isinstance(analysis, dict):
+        return "report"
+
+    if (
+        analysis.get("failure_type") != "Test"
+        or analysis.get("fix_required") is not True
+    ):
+        return "report"
+
+    # 6. Allow high-confidence failures only
+    if analysis.get("confidence", "low") != "high":
+        return "report"
+
+    return "fix_proposal"
+
 
 
 def route_after_apply_fix(state: TestRunState) -> str:
@@ -100,3 +129,25 @@ def route_after_apply_fix(state: TestRunState) -> str:
         return "validate"
 
     return "report"
+
+
+def route_after_fix_proposal(state: TestRunState) -> str:
+    """
+    Only send a successfully generated fix
+    to Human Fix Approval.
+    """
+
+    # Stop if the node reported a terminal error
+    if state.get("terminal_status") in ("ERROR", "BLOCKED"):
+        return "report"
+
+    # Check that a proposed patch exists
+    proposal = state.get("fix_proposal")
+
+    if (
+        not isinstance(proposal, dict)
+        or not proposal.get("patch_diff")
+    ):
+        return "report"
+
+    return "fix_approval"

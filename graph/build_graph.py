@@ -29,6 +29,7 @@ from graph.routing import (
     route_after_execute,
     route_after_analyze,
     route_after_fix_approval,
+    route_after_fix_proposal,
     route_after_apply_fix,
 )
 
@@ -88,7 +89,14 @@ def build_graph():
         },
     )
 
-    graph.add_edge("fix_proposal", "fix_approval")
+    graph.add_conditional_edges(
+    "fix_proposal",
+    route_after_fix_proposal,
+    {
+        "fix_approval": "fix_approval",
+        "report": "report",
+    },
+)
 
     graph.add_conditional_edges(
         "fix_approval",
