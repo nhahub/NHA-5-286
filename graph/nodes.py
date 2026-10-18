@@ -19,6 +19,8 @@ from analysis.mock_failure import mock_propose_fix
 from analysis.mock_failure import mock_analyze
 from healing.mock_fix_approval import mock_fix_approval_node
 from healing.mock_apply_fix import mock_apply_fix
+from agents.fix_proposal import (read_failed_spec_code,run_fix_proposal)
+from llm.errors import ( LLMUnavailableError, BudgetExceededError, LLM_FATAL_TAG,redact)
 
 
 
@@ -107,13 +109,70 @@ def analyze_node(state: TestRunState) -> dict:
     )
 
 
-def fix_proposal_node(state: TestRunState) -> dict:
+
+def fix_proposal_node(
+    state: TestRunState,
+    config: RunnableConfig | None = None,
+) -> dict:
+
+    # Keep the existing Sandbox behavior
     if state.get("sandbox_mode", False):
         return mock_propose_fix(state)
 
-    raise NotImplementedError(
-        "Real Fix Proposal is not connected yet."
-    )
+    try:
+        # 1. Get the selected model
+        request = state.get("test_request") or {}
+        model = request.get("codegen_model")
+
+        if not model:
+            raise ValueError(
+                "No model selected for Fix Proposal."
+            )
+
+        # 2. Get the current LangGraph thread
+        thread_id = (
+            ((config or {}).get("configurable") or {})
+            .get("thread_id")
+        )
+
+        if not thread_id:
+            raise ValueError(
+                "Missing LangGraph thread_id."
+            )
+
+        # 3. Read the correct failed test
+        spec_code, spec_filename = read_failed_spec_code(
+            state
+        )
+
+        # 4. Run the real Fix Proposal
+        return run_fix_proposal(
+            state,
+            spec_code=spec_code,
+            spec_filename=spec_filename,
+            model=model,
+            model_factory=model_factory_for(thread_id),
+        )
+
+    except (LLMUnavailableError, BudgetExceededError) as exc:
+        return {
+            "errors": [
+                *(state.get("errors") or []),
+                f"{LLM_FATAL_TAG}[fix_proposal]: "
+                f"{redact(str(exc))}",
+            ],
+            "terminal_status": "ERROR",
+        }
+
+    except Exception as exc:
+        return {
+            "errors": [
+                *(state.get("errors") or []),
+                f"fix_proposal: {redact(str(exc))}",
+            ],
+            "terminal_status": "ERROR",
+        }
+
 
 
 def fix_approval_node(state: TestRunState) -> dict:

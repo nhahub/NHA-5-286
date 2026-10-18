@@ -23,6 +23,7 @@ class FailureAnalysis(BaseModel):
     application_bug: bool
     fix_required: bool
     subtype: TestSubtype | None = None
+    confidence: Literal["high", "medium", "low"] = "low"
 
     @model_validator(mode="after")
     def subtype_only_for_test_class(self) -> "FailureAnalysis":
