@@ -31,3 +31,55 @@ Must not: contain business logic
 #     terminal_status: str | None          # "PASS" | "FAIL" | "BLOCKED" | "ERROR" | None
 #     errors: list[str]                    # node crash messages; report still runs
 #     report_path: str | None             # path to the rendered report file
+
+"""
+Purpose: TestRunState TypedDict — the single shared state object
+passed through every LangGraph node.
+
+Must not: contain business logic.
+"""
+
+from typing import TypedDict
+
+
+class TestRunState(TypedDict):
+    # Run
+    run_id: str
+    test_request: dict
+    target_url: str | None
+
+    # Planning
+    test_plan: list[dict]
+
+    # Code generation / validation
+    generated_test_files: list[str]
+    validation_status: str | None
+    validation_errors: list[str]
+    generation_retry_count: int
+
+    # Human code review
+    human_review_decision: str | None
+    human_review_count: int
+    reviewer_note: str | None
+    edited_code: str | None
+
+    # Execution
+    execution_result: dict | None
+    execution_evidence: list[dict]
+
+    # Failure analysis
+    failure_analysis: dict | None
+    failure_type: str | None
+
+    # Healing
+    fix_proposal: dict | None
+    approval_decision: str | None
+    healing_retry_count: int
+
+    # Models
+    models_used: dict[str, str]
+
+    # Final state
+    terminal_status: str | None
+    errors: list[str]
+    report_path: str | None
