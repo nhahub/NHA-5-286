@@ -1,66 +1,151 @@
-# AI Test Run Report
+{# Reference Markdown report. Fixed English headings and status names; every number comes from report_model. #}
+# Test Run Report
 
-**Run ID:** {{ report.run_id }}
-**Status:** {{ report.terminal_status }}
-**URL:** {{ report.target_url or "N/A" }}
-**Duration:** {{ "%.1f"|format(report.duration_seconds or 0) }}s
-**Generated:** {{ generated_at }}
-
----
+| | |
+|---|---|
+| **Status** | {{ r.terminal_status or "ERROR" }} |
+| **Run ID** | {{ r.run_id or "unknown" }} |
+| **Target URL** | {{ r.target_url.url or "none" }}{% if r.target_url.source %} (from {{ r.target_url.source }}){% endif %} |
+| **Duration** | {% if r.duration_s is number %}{{ "%.1f"|format(r.duration_s) }} s{% else %}n/a{% endif %} |
+| **Regenerations** | {{ r.attempts.generation_retries if r.attempts.generation_retries is number else "n/a" }} |
+| **Healing attempts** | {% if r.attempts.healing %}{% for sid, n in r.attempts.healing.items() %}{{ sid }}: {{ n }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}none{% endif %} |
 
 ## Requirements
 
-> {{ report.requirements }}
+{{ (r.requirements_text or "(not provided)")|fence("text") }}
+{% if r.requirements_note %}
 
----
+_Note: {{ r.requirements_note }}_
+{% endif %}
 
 ## Summary
 
-| Metric | Value |
-|--------|-------|
-| Terminal status | **{{ report.terminal_status }}** |
-| Total scenarios | {{ report.scenarios | length }} |
-| Generation attempts | {{ report.generation_attempts }} |
-| Heal attempts | {{ report.heal_attempts }} |
+| Total | Passed | Failed | Blocked |
+|---|---|---|---|
+| {{ r.counts.total or 0 }} | {{ r.counts.passed or 0 }} | {{ r.counts.failed or 0 }} | {{ r.counts.blocked or 0 }} |
 
----
+## Models used
 
-## Scenario Results
+{% if r.models_used %}
+| Agent | Model |
+|---|---|
+{% for agent, model in r.models_used.items() %}
+| {{ agent }} | {{ model|md_cell }} |
+{% endfor %}
+{% else %}
+No model was used in this run.
+{% endif %}
 
-| Scenario | Status | Failure type | Subtype | Root cause |
-|----------|--------|-------------|---------|------------|
-{% for s in report.scenarios -%}
-| {{ s.name }} | {{ s.status }} | {{ s.failure_type or "—" }} | {{ s.subtype or "—" }} | {{ s.root_cause or "—" }} |
+## Scenarios
+
+{% if r.scenarios %}
+| ID | Scenario | Status | Duration | Notes |
+|---|---|---|---|---|
+{% for s in r.scenarios %}
+| {{ s.id }} | {{ s.name|md_cell }} | {{ s.status }} | {% if s.duration_s is number %}{{ "%.1f"|format(s.duration_s) }} s{% else %}n/a{% endif %} | {{ (s.blocked_reason or "")|md_cell }} |
 {% endfor %}
 
----
+{% for s in r.scenarios %}
+### {{ s.id }}: {{ s.name }}
 
-## Models Used
+{% for step in s.steps or [] %}
+{{ loop.index }}. `{{ step.action }}`{% if step.target %} {{ step.target|md_cell }}{% endif %}{% if step.value %} = {{ step.value|md_cell }}{% endif %}
 
-{% for agent, model in report.models_used.items() -%}
-- **{{ agent }}**: `{{ model }}`
 {% endfor %}
 
-{% if report.defect_candidates %}
----
+**Expected result:** {{ s.expected_result or "n/a" }}
 
-## Defect Candidates *(Application failures — for future issue-tracker integration)*
+{% endfor %}
+{% else %}
+No scenarios were produced.
+{% endif %}
+{% if r.failure_analysis %}
 
-{% for d in report.defect_candidates -%}
-- {{ d }}
+## Failure analysis
+
+{% for f in r.failure_analysis %}
+### {{ f.scenario_id }}: {{ f.failure_type }}{% if f.subtype %} / {{ f.subtype }}{% endif %}
+
+- **Confidence:** {{ f.confidence or "n/a" }}
+- **Application bug:** {{ "yes" if f.application_bug else "no" }}
+- **Fix required:** {{ "yes" if f.fix_required else "no" }}
+- **Root cause:** {{ f.root_cause }}
+- **Evidence:** {{ f.evidence }}
+{% if f.explanation %}
+
+{{ f.explanation }}
+{% endif %}
+
+{% endfor %}
+{% endif %}
+{% if r.evidence %}
+
+## Evidence
+
+{% for e in r.evidence %}
+### {{ e.scenario_id }}
+
+- **Final URL:** {{ e.final_url or "n/a" }}
+- **Screenshot:** {{ e.screenshot or "n/a" }}
+- **Trace:** {{ e.trace or "n/a" }}
+{% if e.console_errors %}
+- **Console errors:**
+{% for c in e.console_errors %}
+  - `{{ c.type }}` {{ c.text|md_cell }}
+{% endfor %}
+{% endif %}
+{% if e.failed_requests %}
+- **Failed requests:**
+{% for n in e.failed_requests %}
+  - {{ n.method }} {{ n.url }} -> {{ n.status if n.status is number else n.failure }}
 {% endfor %}
 {% endif %}
 
-{% if report.errors %}
----
-
-## Errors
-
-{% for e in report.errors -%}
-- `{{ e }}`
 {% endfor %}
 {% endif %}
+{% if r.patches %}
 
----
+## Patches
 
-*AI Test Automation · English report always · Application code is never changed automatically.*
+{% for p in r.patches %}
+### {{ p.scenario_id }}: {{ "APPLIED" if p.applied else "NOT APPLIED" }}{% if p.risky %} (risky){% endif %}
+
+- **Reason:** {{ p.reason }}
+- **Approval:** {{ p.approval or "n/a" }}
+{% if p.requirement %}
+- **Original requirement:** {{ p.requirement }}
+{% endif %}
+
+{{ p.diff|fence("diff") }}
+
+{% endfor %}
+{% endif %}
+{% if r.generated_code %}
+
+## Generated code
+
+{% for g in r.generated_code %}
+### {{ g.file }}{% if g.patched %} (patched){% endif %}
+
+{{ g.code|fence("typescript") }}
+
+{% endfor %}
+{% endif %}
+{% if r.defect_candidates %}
+
+## Defect candidates
+
+Application failures only. Nothing is filed automatically; an issue tracker integration is a future phase.
+
+{% for d in r.defect_candidates %}
+- **{{ d.scenario_id }}:** {{ d.summary }}
+{% endfor %}
+{% endif %}
+{% if r.errors %}
+
+## System errors
+
+{% for e in r.errors %}
+- {{ e }}
+{% endfor %}
+{% endif %}
