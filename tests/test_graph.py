@@ -3,9 +3,7 @@ Purpose: Focused unit tests for graph/ package — state shape, deterministic ro
          retry bounds, low confidence healing prevention, and graph compilation.
 """
 from __future__ import annotations
-
 import pytest
-
 from graph.build_graph import build_graph
 from graph.routing import (
     route_after_analyze,
@@ -14,6 +12,7 @@ from graph.routing import (
     route_after_fix_proposal,
     route_after_intake,
     route_after_validate,
+    route_after_fix_approval
 )
 from graph.state import TestRunState
 
@@ -41,6 +40,11 @@ EXPECTED_STATE_KEYS = {
     "terminal_status",
     "errors",
     "report_path",
+    "sandbox_mode",
+    "mock_fix_applied",
+    "mock_execution_outcome",
+    "mock_risky",
+    "mock_fixes_needed",
 }
 
 
@@ -53,7 +57,7 @@ def test_test_run_state_has_all_required_keys() -> None:
     declared = set(TestRunState.__annotations__.keys())
     missing = EXPECTED_STATE_KEYS - declared
     assert not missing, f"TestRunState missing fields: {missing}"
-    assert len(declared) == 23
+    assert len(declared) == 28
 
 
 # ---------------------------------------------------------------------------
@@ -111,6 +115,10 @@ def test_route_after_validate_invalid_second_retry_returns_codegen() -> None:
     assert route_after_validate(state) == "codegen"
 
 
+@pytest.mark.xfail(
+    reason="Human Code Review node is not implemented yet",
+    strict=True,
+)
 def test_route_after_validate_invalid_after_2_retries_human_review_on() -> None:
     state = {
         "validation_status": "invalid",
@@ -186,8 +194,13 @@ def test_route_after_analyze_test_class_healable_returns_fix_proposal() -> None:
     state = {
         "failure_type": "Test",
         "healing_retry_count": 0,
-        "failure_analysis": {"confidence": "high"},
+        "failure_analysis": {
+            "failure_type": "Test",
+            "fix_required": True,
+            "confidence": "high",
+        },
     }
+
     assert route_after_analyze(state) == "fix_proposal"
 
 
@@ -240,42 +253,80 @@ def test_route_after_analyze_per_scenario_healing_cap_returns_report() -> None:
 # Routing after fix proposal
 # ---------------------------------------------------------------------------
 
-def test_route_after_fix_proposal_approved_returns_apply_fix() -> None:
-    state = {"approval_decision": "approved"}
-    assert route_after_fix_proposal(state) == "apply_fix"
+def test_route_after_fix_proposal_valid_patch_requires_human_approval() -> None:
+    state = {
+        "fix_proposal": {"patch_diff": "example patch diff"},
+    }
+    assert route_after_fix_proposal(state) == "fix_approval"
 
 
-def test_route_after_fix_proposal_rejected_returns_report() -> None:
-    state = {"approval_decision": "rejected"}
-    assert route_after_fix_proposal(state) == "report"
+def test_route_after_fix_proposal_existing_approval_cannot_skip_review() -> None:
+    state = {
+        "approval_decision": "approved",
+        "fix_proposal": {"patch_diff": "example patch diff"},
+    }
+    assert route_after_fix_proposal(state) == "fix_approval"
 
 
-def test_route_after_fix_proposal_auto_approved_high_confidence_returns_apply_fix() -> None:
+def test_route_after_fix_proposal_auto_high_confidence_requires_approval() -> None:
     state = {
         "approval_decision": "auto",
-        "fix_proposal": {"risky": False},
+        "fix_proposal": {
+            "patch_diff": "example patch diff",
+            "risky": False,
+        },
         "failure_analysis": {"confidence": "high"},
     }
-    assert route_after_fix_proposal(state) == "apply_fix"
+    assert route_after_fix_proposal(state) == "fix_approval"
 
 
-def test_route_after_fix_proposal_auto_approved_low_confidence_returns_report() -> None:
+def test_route_after_fix_proposal_missing_patch_returns_report() -> None:
     state = {
-        "approval_decision": "auto",
-        "fix_proposal": {"risky": False},
-        "failure_analysis": {"confidence": "low"},
+        "fix_proposal": {},
     }
     assert route_after_fix_proposal(state) == "report"
 
 
-def test_route_after_fix_proposal_auto_approved_risky_returns_report() -> None:
+def test_route_after_fix_proposal_empty_patch_returns_report() -> None:
     state = {
-        "approval_decision": "auto",
-        "fix_proposal": {"risky": True},
-        "failure_analysis": {"confidence": "high"},
+        "fix_proposal": {"patch_diff": "   "},
     }
     assert route_after_fix_proposal(state) == "report"
 
+# ---------------------------------------------------------------------------
+# Routing after Human Fix Approval
+# ---------------------------------------------------------------------------
+
+def test_route_after_fix_approval_approved_applies_fix() -> None:
+    state = {
+        "approval_decision": "approved",
+        "fix_proposal": {"patch_diff": "example patch diff"},
+    }
+    assert route_after_fix_approval(state) == "apply_fix"
+
+
+def test_route_after_fix_approval_rejected_returns_report() -> None:
+    state = {
+        "approval_decision": "rejected",
+        "fix_proposal": {"patch_diff": "example patch diff"},
+    }
+    assert route_after_fix_approval(state) == "report"
+
+
+def test_route_after_fix_approval_auto_returns_report() -> None:
+    state = {
+        "approval_decision": "auto",
+        "fix_proposal": {"patch_diff": "example patch diff"},
+    }
+    assert route_after_fix_approval(state) == "report"
+
+
+def test_route_after_fix_approval_missing_patch_returns_report() -> None:
+    state = {
+        "approval_decision": "approved",
+        "fix_proposal": {},
+    }
+    assert route_after_fix_approval(state) == "report"
 
 # ---------------------------------------------------------------------------
 # Routing after apply fix
@@ -301,7 +352,7 @@ def test_graph_has_all_ten_nodes() -> None:
         "planner",
         "codegen",
         "validate",
-        "human_code_review",
+        "fix_approval",
         "execute",
         "analyze",
         "fix_proposal",

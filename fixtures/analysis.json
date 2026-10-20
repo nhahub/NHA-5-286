@@ -3,11 +3,7 @@
   "subtype": "SELECTOR",
   "confidence": "high",
   "root_cause": "The li element rendered, but .toggle does not exist inside it (outdated selector).",
-  "evidence": [
-    "assert_visible('.todo-list li') passed",
-    "click('.todo-list li .toggle') timed out after 10000ms",
-    "artifacts: complete_todo-failed.png, trace.zip"
-  ],
+  "evidence": "assert_visible('.todo-list li') passed\nclick('.todo-list li .toggle') timed out after 10000ms\nartifacts: complete_todo-failed.png, trace.zip",
   "ruled_out": ["TIMING: li was visible before the click"],
   "suggested_fix": "Replace '.toggle' with getByRole('checkbox') after verifying the current DOM",
   "application_bug": false,
