@@ -6,12 +6,14 @@ Must not: contain execution logic or business rules
 """
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal,ClassVar
 
 from pydantic import BaseModel, field_validator
 
 
 class TestRequest(BaseModel):
+
+    __test__: ClassVar[bool] = False  # not a test class: stops pytest from collecting itS
     url: str | None = None
     requirements: str
     scenario_cap: int = 3

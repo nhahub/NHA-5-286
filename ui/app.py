@@ -1,32 +1,30 @@
 """Responsive Gradio 6 dashboard for AI assisted test automation."""
 
 from __future__ import annotations
-
-
-
 import html
-
 import os
-
 import re
-
 import textwrap
-
+import threading
 import zipfile
-
 from datetime import datetime, timezone
-
 from pathlib import Path
-
 from xml.sax.saxutils import escape
-
-
-
 import gradio as gr
+
+from uuid import uuid4
+from langgraph.types import Command
+from graph.build_graph import build_graph
+from llm.settings import (
+    LLMSettings, check_static, effective_key, register_run_credentials, release_run_credentials, validate_settings,
+)
 
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+WORKFLOW = build_graph()
+
 
 EXPORT_DIR = ROOT / "runs" / "sandbox_reports"
 
@@ -117,9 +115,11 @@ body,.gradio-container {background:var(--app-bg)!important;color:var(--app-text)
 .step {display:flex;align-items:center;padding:8px 10px;border:1px solid var(--app-line);border-radius:8px;margin:4px 0;
  background:var(--app-surface2);color:var(--app-text)!important;font-size:12px;line-height:1.25}
 .step-dot {display:inline-block;flex:none;width:8px;height:8px;border-radius:50%;background:#95a0b2;margin-right:8px}
-.step-status {margin-left:auto;color:var(--app-muted);padding-left:8px;white-space:nowrap}
+.step-status {margin-left:auto;color:var(--app-muted);padding-left:10px;text-align:right;white-space:normal;flex:0 1 auto;min-width:0}
+.step > .step-name {flex:1 1 auto;min-width:0}
+.metric {min-width:0;overflow-wrap:anywhere}
 .status-running .step-dot {background:var(--app-accent)}.status-completed .step-dot {background:#27ae80}
-.status-failed .step-dot {background:#d94f5c}.status-skipped .step-dot {background:#d5a642}
+.status-failed .step-dot {background:#d94f5c}.status-waiting-for-approval .step-dot {background:#e8a33d}.status-skipped .step-dot {background:#d5a642}
 .page-head {margin:0 0 12px}.page-head h1{margin:0 0 4px;font-size:23px}
 .metric {background:var(--app-surface);border:1px solid var(--app-line);border-radius:12px;padding:15px}
 .metric-value{font-size:23px;font-weight:700}.metric-label{font-size:11px;color:var(--app-muted);margin-top:3px}
@@ -166,9 +166,11 @@ footer{display:none!important}
  #scenario-controls > .form {grid-template-columns:minmax(0,1fr)!important}}
 """
 
-STAGES = ["Intake", "Planner", "Code Generator", "Validation", "Execution", "Evidence Collection", "Analyzer", "Fix Proposal", "Report Generation"]
+STAGES = ["Intake", "Planner", "Code Generator", "Validation", "Execution", "Evidence Collection", "Analyzer", "Fix Proposal", "Human Approval", "Apply Fix (Healing)", "Report Generation"]
 
-STAGE_STATUSES = {"not run", "running", "completed", "failed", "skipped"}
+STATUS_LABELS = {"waiting for approval": "Waiting for Approval"}
+
+STAGE_STATUSES = {"not run", "running", "waiting for approval", "completed", "failed", "skipped"}
 
 
 
@@ -248,9 +250,11 @@ def progress_visibility(show_progress: bool) -> tuple[gr.update, str]:
 
 
 
-def render_progress(statuses: dict[str, str] | None = None) -> str:
+def render_progress(statuses: dict[str, str] | None = None, notes: dict[str, str] | None = None) -> str:
 
     statuses = statuses or {}
+
+    notes = notes or {}
 
     markup = []
 
@@ -264,7 +268,7 @@ def render_progress(statuses: dict[str, str] | None = None) -> str:
 
             f"<div class='step status-{status.replace(' ', '-')}'><span class='step-dot'></span>"
 
-            f"{html.escape(stage)}<span class='step-status'>{status.title()}</span></div>"
+            f"<span class='step-name'>{html.escape(stage)}</span><span class='step-status'>{STATUS_LABELS.get(status, status.title())}{html.escape(' · ' + notes[stage]) if notes.get(stage) else ''}</span></div>"
 
         )
 
@@ -302,7 +306,7 @@ def session_mode_label(use_sandbox: bool) -> str:
 
     sandbox_enabled = use_sandbox is True or str(use_sandbox).strip().lower() in {"true", "1", "yes", "on"}
 
-    mode = "Sandbox mode" if sandbox_enabled else "Live mode (workflow unavailable)"
+    mode = "Sandbox mode (simulated)" if sandbox_enabled else "Live mode (real agents only)"
 
     return f"<div class='session-mode'>Session mode<br><b>{mode}</b></div>"
 
@@ -312,131 +316,17 @@ def session_mode_label(use_sandbox: bool) -> str:
 
 def save_llm_settings(provider: str, model: str, api_key: str) -> tuple[str, dict]:
 
-    if not (model or "").strip():
+    """Validate the credentials with a real provider call, then keep them for this UI session only."""
 
-        return "Enter a model name before saving.", {}
+    ok, message = validate_settings(provider, model or "", api_key or "")
 
     # Session-scoped only. Never expose this dict in report content, logs, or component values.
+    state = {"provider": provider, "model": (model or "").strip(), "api_key": api_key or "", "validated": ok}
 
-    return f"Saved {provider} settings for this UI session. The API key stays masked and is not exported.", {
+    if not ok:
+        return f"**Not validated — live mode is unavailable with these settings.**\n\n{message}", state
 
-        "provider": provider, "model": model.strip(), "api_key": api_key or ""
-
-    }
-
-
-
-
-
-def _scenario_names(requirements: str, limit: int) -> list[str]:
-
-    chunks = [s.strip(" .\n\t-•") for s in re.split(r"\n+|(?<=[.!?])\s+", requirements) if s.strip(" .\n\t-•")]
-
-    chunks = chunks[:limit]
-
-    return chunks or ["Review requested behavior"]
-
-
-
-
-
-def build_sandbox_run(url: str, requirements: str, browser: str, mode: str, maximum: int, timeout: int) -> dict:
-
-    """Make run metadata and a scenario outline; no browser or AI work is executed."""
-
-    timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-    scenarios = []
-
-    for i, name in enumerate(_scenario_names(requirements, int(maximum)), 1):
-
-        scenarios.append({
-
-            "Scenario ID": f"S-{i:03d}", "Scenario Name": name,
-
-            "Status": "Not run", "Duration": "—", "Error Summary": "Not executed in sandbox mode",
-
-            "Test Steps": [name], "Expected Result": "Behavior matches the requirement.",
-
-            "Actual Result": "Not observed; browser execution is not implemented.",
-
-            "Error Message": "No execution error; this is a preview scenario.",
-
-            "Evidence Path": "Not available", "Analysis": "No runtime evidence was collected.",
-
-            "Proposed Fix": "Not generated.",
-
-        })
-
-    return {"run_id": f"sandbox-{datetime.now().strftime('%Y%m%d-%H%M%S')}", "created_at": timestamp,
-
-            "mode": "Sandbox preview — no test executed", "url": url.strip(), "requirements": requirements.strip(),
-
-            "browser": browser, "execution_mode": mode, "timeout_seconds": int(timeout),
-
-            "scenarios": scenarios, "passed": 0, "failed": 0, "skipped": 0,
-
-            "execution_time": "Not executed", "stages": {stage: "Not run" for stage in STAGES}}
-
-
-
-
-
-def validate_and_prepare(url: str, requirements: str, browser: str, mode: str,
-
-                         maximum: float, timeout: float, authorization: bool, use_sandbox: bool):
-
-    errors = []
-
-    if not (url or "").strip():
-
-        errors.append("Enter an application URL.")
-
-    elif not re.match(r"^https?://[^\s/]+", url.strip(), re.I):
-
-        errors.append("Enter a complete URL beginning with https:// or http://.")
-
-    if not (requirements or "").strip():
-
-        errors.append("Describe at least one test requirement.")
-
-    if not authorization:
-
-        errors.append("Confirm that you are authorized to test this application.")
-
-    if errors:
-
-        return "### Please correct these items\n" + "\n".join(f"- {e}" for e in errors), None, *(gr.update() for _ in range(8))
-
-
-
-    if not use_sandbox:
-
-        return ("### Live workflow unavailable\nSandbox is off, but this project does not yet have a connected AI workflow or browser runner. "
-
-                "Enable **Use sandbox** in Settings to prepare a clearly labeled preview."), None, *(gr.update() for _ in range(8))
-
-
-
-    run = build_sandbox_run(url, requirements, browser, mode, int(maximum), int(timeout))
-
-    status = ("<div class='status-note'><b>Sandbox preview ready</b><br>" +
-
-              "The request was validated and a report preview was prepared. No AI agents or browser tests ran.</div>")
-
-    stages = render_progress(run["stages"])
-
-    table = [[s["Scenario ID"], s["Scenario Name"], s["Status"], s["Duration"], s["Error Summary"]] for s in run["scenarios"]]
-
-    metric_values = [str(len(run["scenarios"])), "0", "0", "0", "Not executed"]
-
-    # Keep run-scoped content isolated in gr.State, while updating visible outputs.
-
-    labels = ["Total Scenarios", "Passed", "Failed", "Skipped", "Execution Time"]
-
-    cards = [gr.update(value=metric_card(value, label)) for value, label in zip(metric_values, labels)]
-
-    return status, run, gr.update(value=stages), *cards, gr.update(value=table), gr.update(value="")
+    return f"**Validated.** {message} The API key stays masked, session-only, and is not exported.", state
 
 
 
@@ -470,204 +360,597 @@ def scenario_details(run: dict | None, evt: gr.SelectData) -> str:
 
 
 
+def _report_notice(run: dict) -> str:
+    if run["simulated"]:
+        return "SIMULATED sandbox run: agents, browser execution, and fixes are mocks. This is not a real test result."
+    return "Live run."
+
+
+def _report_facts(run: dict) -> list[tuple[str, str]]:
+    models = ", ".join(f"{k}: {v}" for k, v in run["models_used"].items()) or "none recorded"
+    return [("Run ID", run["run_id"]), ("Mode", run["mode"]), ("Created", run["created_at"]),
+            ("Application URL", run["url"]), ("Requirements", run["requirements"]),
+            ("Browser", f"{run['browser']} / {run['execution_mode']}"), ("Terminal status", run["terminal_status"]),
+            ("Total scenarios", str(len(run["scenarios"]))), ("Passed", str(run["passed"])), ("Failed", str(run["failed"])),
+            ("Skipped / not run", str(run["skipped"])), ("Execution time", run["execution_time"] + (" (simulated)" if run["simulated"] and run["execution_time"][0].isdigit() else "")),
+            ("Healing attempts", f"{run['healing_attempts']} of {MAX_HEALING}"), ("Models used", models),
+            ("Executed nodes", " > ".join(run["trail"]) or "none")]
+
+
 def preview_report(run: dict | None) -> str:
-
     if not run:
-
-        return "No run is selected. Start a sandbox preview first."
-
-    lines = [f"# Test Run Report — {run['run_id']}", f"**Mode:** {run['mode']}  ", f"**Created:** {run['created_at']}  ",
-
-             f"**Application:** {run['url']}  ", f"**Browser:** {run['browser']} · {run['execution_mode']} · Timeout {run['timeout_seconds']}s", "",
-
-             "> Sandbox preview: no AI agents or browser tests were executed.", "", "## Requirements", run["requirements"], "",
-
-             "## Summary", f"- Total scenarios: {len(run['scenarios'])}", "- Passed: 0", "- Failed: 0", "- Skipped: 0", "- Execution time: Not executed", "",
-
-             "## Scenario results", "| ID | Scenario | Status | Duration | Error summary |", "|---|---|---|---|---|"]
-
-    lines.extend(f"| {s['Scenario ID']} | {s['Scenario Name']} | {s['Status']} | {s['Duration']} | {s['Error Summary']} |" for s in run["scenarios"])
-
+        return "No run is selected. Start a test first."
+    lines = [f"# Test Run Report — {run['run_id']}", f"> {_report_notice(run)}", ""]
+    lines += [f"**{label}:** {value}  " for label, value in _report_facts(run)]
+    lines += ["", "## Scenario results", "| ID | Scenario | Status | Duration | Error summary |", "|---|---|---|---|---|"]
+    lines.extend(f"| {s['Scenario ID']} | {s['Scenario Name']} | {s['Status']} | {s['Duration']} | {s['Error Summary']} |"
+                 for s in run["scenarios"])
+    for s in run["scenarios"]:
+        lines += ["", f"### {s['Scenario ID']} — {s['Scenario Name']} ({s['Status']})",
+                  f"**Evidence**  \n{s['Evidence Path']}", f"**Analysis**  \n{s['Analysis']}", f"**Proposed fix**  \n{s['Proposed Fix']}"]
+    if run["workflow_error"]:
+        lines += ["", f"**Workflow error:** {run['workflow_error']}"]
     return "\n".join(lines)
 
 
-
-
-
 def _safe(value: object) -> str:
-
     return str(value if value is not None else "")
 
 
-
+def _plain_lines(run: dict) -> list[str]:
+    """Report text without Markdown markup, shared by the PDF and Word writers."""
+    lines = [f"Test Run Report - {run['run_id']}", _report_notice(run), ""]
+    lines += [f"{label}: {value}" for label, value in _report_facts(run)]
+    lines += ["", "Scenario results"]
+    for s in run["scenarios"]:
+        lines += [f"{s['Scenario ID']} | {s['Scenario Name']} | {s['Status']} | {s['Duration']} | {s['Error Summary']}",
+                  "Evidence: " + s["Evidence Path"].replace("\n", "; "),
+                  "Analysis: " + re.sub(r"\s+", " ", s["Analysis"]),
+                  "Proposed fix: " + re.sub(r"[`\n]+", " ", s["Proposed Fix"])]
+    if run["workflow_error"]:
+        lines += ["", "Workflow error: " + re.sub(r"[*`]", "", run["workflow_error"])]
+    return lines
 
 
 def _write_pdf(path: Path, run: dict) -> None:
-
     """Write a small standards-compliant, text-only PDF without a runtime dependency."""
-
-    text_lines = [f"Test Run Report - {run['run_id']}", run["mode"], f"Created: {run['created_at']}", f"URL: {run['url']}",
-
-                  f"Browser: {run['browser']} / {run['execution_mode']}", "No browser test was executed.", "", "Requirements:"]
-
-    text_lines += textwrap.wrap(run["requirements"], 90) or [""]
-
-    text_lines += ["", f"Summary: {len(run['scenarios'])} scenarios; 0 passed; 0 failed; 0 skipped; not executed.", "", "Scenarios:"]
-
-    for s in run["scenarios"]:
-
-        text_lines += textwrap.wrap(f"{s['Scenario ID']} | {s['Scenario Name']} | {s['Status']} | {s['Error Summary']}", 90)
-
+    text_lines: list[str] = []
+    for line in _plain_lines(run):
+        text_lines += textwrap.wrap(line, 90) or [""]
     pages = [text_lines[i:i + 48] for i in range(0, len(text_lines), 48)] or [[]]
-
     objects: list[bytes] = []
-
     page_ids = [4 + 2 * i for i in range(len(pages))]
-
     font_id = 3
-
     objects.append(b"<< /Type /Catalog /Pages 2 0 R >>")
-
     objects.append(("<< /Type /Pages /Kids [" + " ".join(f"{i} 0 R" for i in page_ids) + f"] /Count {len(pages)} >>").encode())
-
     objects.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
-
     for i, page in enumerate(pages):
-
         page_id, content_id = 4 + 2*i, 5 + 2*i
-
         stream = ["BT", "/F1 10 Tf", "50 790 Td", "14 TL"]
-
         for line in page:
-
-            ascii_line = line.encode("ascii", "replace").decode().replace("\\\\", "\\\\\\\\").replace("(", "\\\\(").replace(")", "\\\\)")
-
+            ascii_line = line.encode("ascii", "replace").decode().replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
             stream += [f"({ascii_line}) Tj", "T*"]
-
         stream.append("ET")
-
         payload = "\n".join(stream).encode("ascii")
-
         objects.append(f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] /Resources << /Font << /F1 {font_id} 0 R >> >> /Contents {content_id} 0 R >>".encode())
-
         objects.append(b"<< /Length " + str(len(payload)).encode() + b" >>\nstream\n" + payload + b"\nendstream")
-
     data = bytearray(b"%PDF-1.4\n")
-
     offsets = [0]
-
     for i, obj in enumerate(objects, 1):
-
         offsets.append(len(data)); data += f"{i} 0 obj\n".encode() + obj + b"\nendobj\n"
-
     xref = len(data); data += f"xref\n0 {len(objects)+1}\n0000000000 65535 f \n".encode()
-
     for offset in offsets[1:]: data += f"{offset:010d} 00000 n \n".encode()
-
     data += f"trailer\n<< /Size {len(objects)+1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF".encode()
-
     path.write_bytes(data)
 
 
-
-
-
 def _write_docx(path: Path, run: dict) -> None:
-
-    paragraphs = [f"Test Run Report — {run['run_id']}", run["mode"], f"Created: {run['created_at']}",
-
-                  f"Application: {run['url']}", f"Browser: {run['browser']} / {run['execution_mode']}",
-
-                  "Sandbox preview: no AI agents or browser tests were executed.", "Requirements", run["requirements"],
-
-                  "Summary", f"Total scenarios: {len(run['scenarios'])}; Passed: 0; Failed: 0; Skipped: 0; Execution time: Not executed", "Scenario results"]
-
-    for s in run["scenarios"]:
-
-        paragraphs.append(" | ".join([s["Scenario ID"], s["Scenario Name"], s["Status"], s["Duration"], s["Error Summary"]]))
-
+    paragraphs = _plain_lines(run)
     body = "".join(f'<w:p><w:r><w:t xml:space="preserve">{escape(p)}</w:t></w:r></w:p>' for p in paragraphs)
-
     document = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>{body}<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>'''
-
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as doc:
-
         doc.writestr("[Content_Types].xml", '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>')
-
         doc.writestr("_rels/.rels", '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>')
-
         doc.writestr("word/document.xml", document)
 
 
-
-
-
 def export_report(run: dict | None, format_name: str) -> tuple[str, str | None]:
-
     if not run:
-
-        return "Create a sandbox preview before exporting.", None
-
+        return "Run a test before exporting.", None
     if format_name not in {"PDF", "Word (.docx)", "Excel (.xlsx)"}:
-
         return "Choose PDF, Word, or Excel before exporting.", None
-
     EXPORT_DIR.mkdir(parents=True, exist_ok=True)
-
     stem = re.sub(r"[^A-Za-z0-9_-]", "_", run["run_id"])
-
     if format_name == "Excel (.xlsx)":
-
         try:
-
             from openpyxl import Workbook
-
             from openpyxl.styles import Font, PatternFill
-
         except ImportError:
-
             return "Excel export requires openpyxl. Install it with `pip install openpyxl`.", None
-
         path = EXPORT_DIR / f"{stem}.xlsx"
-
         book = Workbook(); summary = book.active; summary.title = "Summary"
-
         summary.append(["Field", "Value"])
-
-        for row in [["Run ID", run["run_id"]], ["Mode", run["mode"]], ["Created", run["created_at"]], ["Application URL", run["url"]], ["Requirements", run["requirements"]], ["Browser", run["browser"]], ["Execution mode", run["execution_mode"]], ["Total scenarios", len(run["scenarios"])], ["Passed", 0], ["Failed", 0], ["Skipped", 0], ["Execution time", "Not executed"]]: summary.append(row)
-
+        summary.append(["Notice", _report_notice(run)])
+        for row in _report_facts(run): summary.append(list(row))
         scenarios = book.create_sheet("Scenarios"); scenarios.append(["Scenario ID", "Scenario Name", "Status", "Duration", "Error Summary"])
-
         for s in run["scenarios"]: scenarios.append([s[k] for k in ["Scenario ID", "Scenario Name", "Status", "Duration", "Error Summary"]])
-
-        failures = book.create_sheet("Failure Analysis"); failures.append(["Scenario ID", "Scenario Name", "Analysis", "Error Message", "Proposed Fix"])
-
-        for s in run["scenarios"]: failures.append([s["Scenario ID"], s["Scenario Name"], s["Analysis"], s["Error Message"], s["Proposed Fix"]])
-
+        failures = book.create_sheet("Failure Analysis"); failures.append(["Scenario ID", "Scenario Name", "Analysis", "Error Message", "Evidence", "Proposed Fix"])
+        for s in run["scenarios"]: failures.append([s["Scenario ID"], s["Scenario Name"], s["Analysis"], s["Error Message"], s["Evidence Path"], s["Proposed Fix"]])
         for sheet in book.worksheets:
-
             sheet.freeze_panes = "A2"; sheet.auto_filter.ref = sheet.dimensions
-
             for cell in sheet[1]: cell.font = Font(bold=True, color="FFFFFF"); cell.fill = PatternFill("solid", fgColor="315EA8")
-
             for col in sheet.columns:
-
                 width = min(60, max(14, max(len(_safe(c.value)) for c in col) + 2)); sheet.column_dimensions[col[0].column_letter].width = width
-
         book.save(path)
-
     elif format_name == "Word (.docx)":
-
         path = EXPORT_DIR / f"{stem}.docx"; _write_docx(path, run)
-
     else:
-
         path = EXPORT_DIR / f"{stem}.pdf"; _write_pdf(path, run)
-
     return f"Exported {format_name} report for {run['run_id']}.", str(path)
 
 
+# ----------------------------------------------------------------------------- workflow
+MAX_HEALING = 2
 
+NODE_STAGE = {
+    "intake": "Intake", "planner": "Planner", "codegen": "Code Generator", "validate": "Validation",
+    "execute": "Execution", "analyze": "Analyzer", "fix_proposal": "Fix Proposal",
+    "fix_approval": "Human Approval", "apply_fix": "Apply Fix (Healing)", "report": "Report Generation",
+}
+
+
+class StageTracker:
+    """Per-run stage status derived only from LangGraph node events (no static previews)."""
+
+    def __init__(self) -> None:
+        self.status = {stage: "Not run" for stage in STAGES}
+        self.count = {stage: 0 for stage in STAGES}
+        self.note: dict[str, str] = {}
+        self.errors_seen = 0
+        self.history: list[dict] = []  # every pass through every stage, kept across retries/reruns
+
+    ACTIVE = ("Running", "Waiting for Approval")
+
+    def _set(self, stage: str, status: str, note: str | None = None) -> None:
+        self.status[stage] = status
+        if note is not None:
+            self.note[stage] = note
+        if status == "Skipped" or not self.count[stage]:
+            return
+        entry = next((h for h in reversed(self.history) if h["stage"] == stage and h["pass"] == self.count[stage]), None)
+        if entry is None:
+            entry = {"stage": stage, "pass": self.count[stage], "status": status, "note": ""}
+            self.history.append(entry)
+        entry["status"] = status
+        if note is not None:
+            entry["note"] = note
+
+    def begin(self, node: str, note: str | None = None) -> None:
+        stage = NODE_STAGE.get(node)
+        if stage is None:
+            return
+        if self.status[stage] not in self.ACTIVE:
+            self.count[stage] += 1  # a revisit (re-validation, rerun, second analysis) is a new pass
+        waiting = note == "awaiting decision"
+        self._set(stage, "Waiting for Approval" if waiting else "Running", note or "")
+        if node == "execute":
+            if self.status["Evidence Collection"] not in self.ACTIVE:
+                self.count["Evidence Collection"] += 1
+            self._set("Evidence Collection", "Running", "")
+
+    def finish(self, node: str, update: dict) -> None:
+        stage = NODE_STAGE.get(node)
+        if stage is None:
+            return
+        if self.status[stage] not in self.ACTIVE:
+            self.begin(node)
+        terminal = update.get("terminal_status")
+        failed, note = False, ""
+        if node == "intake" and terminal in ("BLOCKED", "ERROR"):
+            failed, note = True, terminal
+        elif node == "validate" and update.get("validation_status") == "invalid":
+            failed, note = True, "invalid"
+        elif node == "execute":
+            failed, note = terminal != "PASS", terminal or ""
+        elif node == "apply_fix":
+            failed = terminal == "FAIL"
+            note = "not applied" if failed else f"attempt {update.get('healing_retry_count', '?')} of {MAX_HEALING}"
+        elif node == "fix_approval":
+            note = str(update.get("approval_decision") or "")
+        elif node == "analyze":
+            note = str(update.get("failure_type") or "")
+        errors = update.get("errors")
+        if isinstance(errors, list):
+            if len(errors) > self.errors_seen:
+                failed, note = True, (note or "error")
+            self.errors_seen = max(self.errors_seen, len(errors))
+        self._set(stage, "Failed" if failed else "Completed", note)
+        if node == "execute":
+            has_evidence = bool(update.get("execution_evidence"))
+            self._set("Evidence Collection", "Completed" if has_evidence else "Skipped",
+                      "" if has_evidence else "no evidence")
+
+    def fail_running(self, reason: str) -> None:
+        for stage, status in self.status.items():
+            if status in self.ACTIVE:
+                self._set(stage, "Failed", reason)
+
+    def finalize(self) -> None:
+        for stage, status in self.status.items():
+            if status == "Not run":
+                self.status[stage] = "Skipped"
+
+    def view(self) -> tuple[dict[str, str], dict[str, str]]:
+        notes = {}
+        for stage in STAGES:
+            parts = ["" if self.note.get(stage) == "awaiting decision" else self.note.get(stage, "")]
+            if self.count[stage] > 1:
+                parts.append(f"×{self.count[stage]}")
+            notes[stage] = " ".join(p for p in parts if p)
+        return dict(self.status), notes
+
+
+RUNS: dict[str, dict] = {}  # thread_id -> UI-side run info; graph state itself lives in the checkpointer
+_RUNS_LOCK = threading.Lock()
+NOOP = gr.update()
+
+
+def _config(thread_id: str) -> dict:
+    return {"configurable": {"thread_id": thread_id}}
+
+
+def _scrub(text: object, info: dict | None) -> str:
+    """Remove any API key from a message before it reaches the UI."""
+    text = str(text)
+    key = (info or {}).get("secret") or ""
+    return text.replace(key, "***") if key else text
+
+
+def _pending_interrupt(thread_id: str) -> dict | None:
+    """The approval request this run is actually paused on, read from the checkpoint."""
+    try:
+        snapshot = WORKFLOW.get_state(_config(thread_id))
+    except Exception:
+        return None
+    for task in snapshot.tasks:
+        for item in task.interrupts:
+            return dict(item.value) if isinstance(item.value, dict) else {"message": str(item.value)}
+    return None
+
+
+def _trail_label(node: str, update: dict) -> str:
+    detail = None
+    if node == "execute":
+        detail = update.get("terminal_status")
+    elif node == "validate":
+        detail = update.get("validation_status")
+    elif node == "analyze":
+        detail = update.get("failure_type")
+    elif node == "fix_approval":
+        detail = update.get("approval_decision")
+    elif node == "apply_fix" and "healing_retry_count" in update:
+        detail = f"attempt {update['healing_retry_count']}"
+    return f"{node} ({detail})" if detail else node
+
+
+def _advance(thread_id: str, graph_input):
+    """Drive the real graph one event at a time, updating the tracker; yields after each event."""
+    info = RUNS[thread_id]
+    tracker = info["tracker"]
+    try:
+        # "tasks" events say which node has really started; "updates" events carry what it returned.
+        for mode, data in WORKFLOW.stream(graph_input, config=_config(thread_id), stream_mode=["tasks", "updates"]):
+            if mode == "tasks":
+                if "input" in data:
+                    tracker.begin(data["name"])
+                elif data.get("interrupts"):
+                    tracker.begin(data["name"], "awaiting decision")
+            else:
+                for node, update in data.items():
+                    if node == "__interrupt__":
+                        continue
+                    update = update or {}
+                    tracker.finish(node, update)
+                    info["trail"].append(_trail_label(node, update))
+            yield
+    except NotImplementedError as exc:
+        stage = next((s for s, st in tracker.status.items() if st in tracker.ACTIVE), "a stage")
+        info["error"] = (f"The live workflow stopped at **{stage}**: {_scrub(exc, info)} "
+                         "No mock or sandbox data was substituted.")
+        tracker.fail_running("not implemented")
+    except Exception as exc:
+        info["error"] = f"{type(exc).__name__}: {_scrub(exc, info)}"
+        tracker.fail_running("error")
+    info["paused"] = info.get("error") is None and _pending_interrupt(thread_id) is not None
+    if info["paused"]:
+        tracker.begin("fix_approval", "awaiting decision")
+    if not info["paused"]:
+        tracker.finalize()
+        info["ended"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        release_run_credentials(thread_id)
+        info["secret"] = ""
+
+
+def _snapshot_values(thread_id: str) -> dict:
+    try:
+        return dict(WORKFLOW.get_state(_config(thread_id)).values or {})
+    except Exception:
+        return {}
+
+
+def _status_text(thread_id: str) -> str:
+    info, values = RUNS[thread_id], _snapshot_values(thread_id)
+    healing = values.get("healing_retry_count", 0)
+    if info.get("error"):
+        return f"### Workflow stopped\n{info['error']}"
+    if info.get("paused"):
+        return f"Workflow paused for human approval. Healing attempts used so far: {healing} of {MAX_HEALING}."
+    label = "SIMULATED" if info["sandbox"] else "LIVE"
+    return (f"Workflow completed: {values.get('terminal_status', 'UNKNOWN')} ({label}). "
+            f"Healing attempts used: {healing} of {MAX_HEALING}.")
+
+
+def _progress_html(thread_id: str) -> str:
+    tracker = RUNS[thread_id]["tracker"]
+    markup = render_progress(*tracker.view())
+    passes = [h for h in tracker.history if tracker.count[h["stage"]] > 1]
+    if passes:  # only stages that were repeated need a history; the rows above show the latest pass
+        items = "".join(f"<div>{html.escape(h['stage'])} #{h['pass']}: {html.escape(h['status'])}"
+                        f"{html.escape(' · ' + h['note']) if h['note'] else ''}</div>" for h in passes)
+        markup += f"<div class='muted' style='margin-top:10px'><b>Pass history</b>{items}</div>"
+    return markup
+
+
+def approval_ui(session: dict | None):
+    """Approve/Reject panel for the run's real pending interrupt (or hidden when none)."""
+    payload = _pending_interrupt(session["thread_id"]) if session and session.get("thread_id") in RUNS else None
+    if not payload:
+        return gr.update(value="", visible=False), gr.update(visible=False)
+    values = _snapshot_values(session["thread_id"])
+    analysis = values.get("failure_analysis") or {}
+    used = values.get("healing_retry_count", 0)
+    subtype = f" / {analysis['subtype']}" if analysis.get("subtype") else ""
+    details = (
+        "### Human Fix Approval Required\n\n"
+        f"**Healing attempt:** {used + 1} of {MAX_HEALING}\n\n"
+        f"**Failure analysis:** {analysis.get('failure_type', '?')}{subtype} — {analysis.get('root_cause', 'n/a')}\n\n"
+        f"**Risky:** {payload.get('risky')}\n\n"
+        f"**Reason:** {payload.get('reason')}\n\n"
+        "**Proposed Patch:**\n\n```diff\n" f"{payload.get('patch_diff', '')}\n```"
+    )
+    return gr.update(value=details, visible=True), gr.update(visible=True)
+
+
+def _view(thread_id: str | None, status: str, session=NOOP, history=NOOP):
+    """One UI frame: [status, session, progress, approval_details, approval_buttons, return_btn, history]."""
+    if thread_id is None:
+        return status, session, NOOP, NOOP, NOOP, NOOP, history
+    details, buttons = approval_ui({"thread_id": thread_id})
+    return status, session, _progress_html(thread_id), details, buttons, gr.update(visible=True), history
+
+
+def start_graph_workflow(url, requirements, browser, mode, maximum, timeout, authorization, use_sandbox,
+                         mock_outcome, mock_risky, mock_fixes=1, llm_cfg=None, history=None):
+    """Start the LangGraph workflow and stream real node progress to the UI."""
+    history = list(history or [])
+    problems = []
+    if not (url or "").strip():
+        problems.append("Enter an application URL.")
+    elif not re.match(r"^https?://[^\s/]+", url.strip(), re.I):
+        problems.append("Enter a complete URL beginning with https:// or http://.")
+    if not (requirements or "").strip():
+        problems.append("Describe at least one test requirement.")
+    if not authorization:
+        problems.append("Confirm that you are authorized to test this application.")
+    if problems:
+        yield _view(None, "### Please correct these items\n" + "\n".join(f"- {p}" for p in problems))
+        return
+
+    llm_public, model_string, settings = None, None, None
+    if not use_sandbox:
+        cfg = llm_cfg or {}
+        if not cfg.get("validated"):
+            yield _view(None, "### Live mode needs validated LLM settings\nOpen **Settings → LLM configuration** and "
+                              "save valid credentials, or enable **Use sandbox** for a simulated run. "
+                              "No mock data is used in live mode.")
+            return
+        settings = LLMSettings(cfg["provider"], cfg["model"], cfg.get("api_key", ""), True)
+        problem = check_static(settings.provider, settings.model, settings.api_key)
+        if problem:
+            yield _view(None, f"### LLM settings unusable\n{problem}")
+            return
+        model_string, llm_public = settings.model_string, settings.public()
+
+    thread_id = str(uuid4())
+    info = {"thread_id": thread_id, "tracker": StageTracker(), "trail": [], "error": None, "paused": False,
+            "sandbox": bool(use_sandbox), "started": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "ended": None, "lock": threading.Lock(), "llm": llm_public,
+            "secret": effective_key(settings.provider, settings.api_key) if settings else "",
+            "meta": {"url": url.strip(), "requirements": requirements.strip(), "browser": browser,
+                     "execution_mode": mode, "timeout_seconds": int(timeout)}}
+    with _RUNS_LOCK:
+        RUNS[thread_id] = info
+    history.append(thread_id)
+    session = {"thread_id": thread_id, "waiting_for_approval": False}
+
+    request = {"url": url.strip(), "requirements": requirements.strip(), "scenario_cap": int(maximum),
+               "authorization": bool(authorization)}
+    initial_state = {"test_request": request, "healing_retry_count": 0, "errors": []}
+    if use_sandbox:
+        initial_state.update(sandbox_mode=True, mock_execution_outcome=mock_outcome, mock_risky=bool(mock_risky),
+                             mock_fixes_needed=int(mock_fixes))
+    else:
+        request.update(planner_model=model_string, codegen_model=model_string, healer_model=model_string)
+        initial_state["sandbox_mode"] = False
+        register_run_credentials(thread_id, settings)
+
+    info["tracker"].begin("intake")
+    yield _view(thread_id, "Workflow running…", session, history)
+    for _ in _advance(thread_id, initial_state):
+        yield _view(thread_id, "Workflow running…", session, history)
+    session["waiting_for_approval"] = bool(info["paused"])
+    yield _view(thread_id, _status_text(thread_id), session, history)
+
+
+def resume_graph_workflow(session, decision):
+    """Resume a paused run from its checkpoint with the human decision."""
+    thread_id = (session or {}).get("thread_id")
+    if thread_id not in RUNS or not _pending_interrupt(thread_id):
+        yield _view(None, "No pending approval request.", session)
+        return
+    if decision not in ("approved", "rejected"):
+        yield _view(thread_id, "Invalid approval decision. Choose Approve or Reject.", session)
+        return
+    info = RUNS[thread_id]
+    if not info["lock"].acquire(blocking=False):
+        yield _view(thread_id, "A decision for this run is already being processed.", session)
+        return
+    try:
+        info["paused"] = False
+        yield _view(thread_id, f"Fix {decision}; resuming workflow…", session)
+        for _ in _advance(thread_id, Command(resume=decision)):
+            yield _view(thread_id, "Workflow running…", session)
+        session = {**session, "waiting_for_approval": bool(info["paused"])}
+        yield _view(thread_id, _status_text(thread_id), session)
+    finally:
+        info["lock"].release()
+
+
+def approve_workflow(session):
+    yield from resume_graph_workflow(session, "approved")
+
+
+def reject_workflow(session):
+    yield from resume_graph_workflow(session, "rejected")
+
+
+def select_run(thread_id):
+    """Switch the active run (each run keeps its own checkpointed state)."""
+    if not thread_id or thread_id not in RUNS:
+        return NOOP, NOOP, NOOP, NOOP, NOOP
+    session = {"thread_id": thread_id, "waiting_for_approval": bool(_pending_interrupt(thread_id))}
+    details, buttons = approval_ui(session)
+    return session, _status_text(thread_id), _progress_html(thread_id), details, buttons
+
+
+# ------------------------------------------------------------------- results from real state
+def _step_text(step: dict) -> str:
+    return " ".join(str(v) for v in (step.get("action"), step.get("target"), step.get("value")) if v)
+
+
+def build_run(thread_id: str) -> dict | None:
+    """Assemble the results view model strictly from the run's checkpointed graph state."""
+    info = RUNS.get(thread_id)
+    if info is None:
+        return None
+    values = _snapshot_values(thread_id)
+    plan = values.get("test_plan") or []
+    result = values.get("execution_result") or {}
+    simulated = bool(result.get("simulated")) or info["sandbox"]
+    tag = " (simulated)" if simulated else ""
+    tests = {t.get("scenario_name"): t for t in result.get("tests", [])}
+    evidence = {e.get("scenario_name"): e for e in values.get("execution_evidence") or []}
+    analysis, fix = values.get("failure_analysis"), values.get("fix_proposal")
+    healing = values.get("healing_retry_count", 0)
+    decision = values.get("approval_decision")
+    terminal = values.get("terminal_status") or ("RUNNING" if not info.get("ended") else "UNKNOWN")
+
+    analysis_text = None
+    if analysis:
+        subtype = f" / {analysis['subtype']}" if analysis.get("subtype") else ""
+        analysis_text = f"{analysis['failure_type']}{subtype}: {analysis['root_cause']}\n\nEvidence: {analysis['evidence']}"
+    fix_text = None
+    if fix:
+        fix_text = (f"{fix['reason']}  \nRisky: {fix['risky']} · Decision: {decision or 'pending'} · "
+                    f"Applied healing attempts: {healing} of {MAX_HEALING}\n\n```diff\n{fix['patch_diff']}\n```")
+
+    rows, total_ms = [], 0
+    for plan_item in plan:
+        name = plan_item.get("name", "Unnamed scenario")
+        test, ev = tests.get(name), evidence.get(name) or {}
+        if test:
+            passed = test.get("status") == "passed"
+            status, ms = ("Passed" if passed else "Failed"), int(test.get("duration_ms") or 0)
+            total_ms += ms
+        else:
+            passed, status, ms = False, ("Blocked" if terminal in ("BLOCKED", "ERROR") else "Not run"), 0
+        err = ev.get("error_message")
+        evidence_lines = []
+        if test and not passed:
+            evidence_lines.append(f"Failed step: {ev.get('failed_step') or 'unknown'}")
+        for label, key in (("Screenshot", "screenshot_path"), ("Trace", "trace_path"), ("Final URL", "final_url")):
+            evidence_lines.append(f"{label}: {ev.get(key) or 'not captured'}")
+        evidence_lines.append(f"Console entries: {len(ev.get('console_log') or [])} · "
+                              f"Network errors: {len(ev.get('network_errors') or [])}")
+        healed = passed and healing > 0
+        if passed:
+            actual = f"Passed{tag}" + (f" after {healing} healing attempt(s)" if healed else "")
+        elif test:
+            actual = f"Failed{tag}: {err or 'no error message'}"
+        else:
+            actual = "Not executed."
+        rows.append({
+            "Scenario ID": f"S-{len(rows) + 1:03d}", "Scenario Name": name, "Status": status,
+            "Duration": f"{ms / 1000:.1f}s{tag}" if test else "—",
+            "Error Summary": (err or "—") if test else ("Not executed" if status == "Not run" else f"Not executed ({terminal})"),
+            "Test Steps": [_step_text(s) for s in plan_item.get("steps", [])] or [name],
+            "Expected Result": plan_item.get("expected_result") or "Not specified",
+            "Actual Result": actual,
+            "Error Message": err or ("None" if test else "Not executed."),
+            "Evidence Path": "\n".join(evidence_lines) if test else "No evidence collected.",
+            "Analysis": (("Previously failed. " if healed else "") + analysis_text) if (analysis_text and (not passed or healed))
+                        else ("No failure to analyse." if passed else "No analysis available."),
+            "Proposed Fix": fix_text if (fix_text and (not passed or healed)) else ("Not needed." if passed else "Not generated."),
+        })
+    failed = sum(r["Status"] == "Failed" for r in rows)
+    passed_n = sum(r["Status"] == "Passed" for r in rows)
+    return {
+        "run_id": values.get("run_id") or thread_id, "thread_id": thread_id, "created_at": info["started"],
+        "mode": "Sandbox — simulated agents and browser" if info["sandbox"] else "Live",
+        "simulated": info["sandbox"], "terminal_status": terminal, "healing_attempts": healing,
+        "models_used": values.get("models_used") or {}, "errors": list(values.get("errors") or []),
+        "trail": list(info["trail"]), "workflow_error": info.get("error"), "paused": bool(info.get("paused")),
+        "llm": info.get("llm"), **info["meta"], "scenarios": rows,
+        "passed": passed_n, "failed": failed, "skipped": len(rows) - passed_n - failed,
+        "execution_time": f"{total_ms / 1000:.1f}s" if tests else "Not executed",
+        "stages": dict(info["tracker"].status),
+    }
+
+
+def run_summary_markdown(run: dict | None) -> str:
+    if not run:
+        return "No run yet. Start a test from **User Request**."
+    models = ", ".join(f"{k}: {v}" for k, v in run["models_used"].items()) or "none recorded"
+    if run["simulated"]:
+        llm = "Sandbox — no LLM provider is called; LLM settings are not used."
+    else:
+        llm = f"{run['llm']['provider']} · {run['llm']['model']} (key not shown)" if run["llm"] else "n/a"
+    lines = [f"**Result:** {run['terminal_status']}" + (" — **awaiting your approval on the User Request page**" if run["paused"] else ""),
+             f"**Mode:** {run['mode']}", f"**LLM:** {llm}", f"**Models used by agents:** {models}",
+             f"**Healing attempts:** {run['healing_attempts']} of {MAX_HEALING}",
+             f"**Executed nodes:** {' → '.join(run['trail']) or 'none'}"]
+    if run["workflow_error"]:
+        lines.append(f"**Workflow error:** {run['workflow_error']}")
+    if run["errors"]:
+        lines.append("**Recorded errors:** " + "; ".join(run["errors"]))
+    return "  \n".join(lines)
+
+
+def refresh_results(session, history):
+    """Rebuild every Results & Reports component from the active run's graph state."""
+    thread_id = (session or {}).get("thread_id")
+    run = build_run(thread_id) if thread_id else None
+    labels = ["Total Scenarios", "Passed", "Failed", "Skipped",
+              "Execution Time (simulated)" if run and run["simulated"] else "Execution Time", "Healing Attempts"]
+    values = ([str(len(run["scenarios"])), str(run["passed"]), str(run["failed"]), str(run["skipped"]),
+               run["execution_time"], f"{run['healing_attempts']} / {MAX_HEALING}"] if run else ["—"] * 6)
+    cards = [gr.update(value=metric_card(v, lbl)) for v, lbl in zip(values, labels)]
+    table = [[s["Scenario ID"], s["Scenario Name"], s["Status"], s["Duration"], s["Error Summary"]]
+             for s in run["scenarios"]] if run else []
+    choices = [(f"{RUNS[t]['started'][11:19]} · {'Sandbox' if RUNS[t]['sandbox'] else 'Live'} · {RUNS[t]['meta']['url']}", t)
+               for t in (history or []) if t in RUNS]
+    return (run, *cards, gr.update(value=table), "Select a scenario row to inspect its details.",
+            run_summary_markdown(run), gr.update(choices=choices, value=thread_id))
 
 
 def build_ui() -> gr.Blocks:
@@ -677,6 +960,8 @@ def build_ui() -> gr.Blocks:
         theme_state = gr.State("Blue")
 
         run_state = gr.State(None)
+
+        run_history = gr.State([])
 
         sidebar_collapsed = gr.State(False)
 
@@ -718,7 +1003,7 @@ def build_ui() -> gr.Blocks:
 
                                     browser = gr.Dropdown(["Chromium", "Firefox", "WebKit"], value="Chromium", label="Browser", elem_id="browser-control")
 
-                                    maximum = gr.Slider(1, 10, value=3, step=1, label="Maximum number of scenarios")
+                                    maximum = gr.Slider(1, 5, value=3, step=1, label="Maximum number of scenarios")
 
                                     mode = gr.Radio(["Headless", "Visible Browser"], value="Headless", label="Execution mode", elem_id="execution-mode-control")
 
@@ -730,19 +1015,48 @@ def build_ui() -> gr.Blocks:
 
                                 request_status = gr.Markdown()
 
+
+                                workflow_session = gr.State(None)
+
+                                approval_details = gr.Markdown(
+                                    visible=False,
+                                    label="Human Fix Approval",
+                                )
+
+                                with gr.Row(visible=False) as approval_buttons:
+                                    approve_btn = gr.Button(
+                                        "Approve Fix",
+                                        variant="primary",
+                                    )
+
+                                    reject_btn = gr.Button(
+                                        "Reject Fix",
+                                        variant="stop",
+                                    )
+
+                                return_btn = gr.Button("Return to Results", visible=False, elem_id="return-to-results")
+
+
+
                         with gr.Column(visible=True, elem_id="progress-card-column") as progress_panel:
 
                             with gr.Group(elem_classes="card"):
 
-                                gr.HTML("<div class='card-title'>Execution progress</div><p class='muted'>Workflow stages are shown as not run in sandbox mode.</p>")
+                                gr.HTML("<div class='card-title'>Execution progress</div><p class='muted'>Stages update live from the workflow nodes that actually execute, including approval, healing and reruns.</p>")
 
                                 progress = gr.HTML(render_progress())
 
-                                gr.Markdown("Sandbox mode does not call LLM providers or launch a browser.", elem_classes="muted")
+                                gr.Markdown("Sandbox runs use simulated agents and a simulated browser. Live runs use the model selected in Settings and stop with a clear message at any stage that is not implemented yet.", elem_classes="muted")
 
                 with gr.Column(visible=False) as results_page:
 
-                    gr.HTML("<div class='page-head'><h1>Results & Reports</h1><p>Review the latest request and export its generated report data.</p></div>")
+                    gr.HTML("<div class='page-head'><h1>Results & Reports</h1><p>Review the selected run's execution results, evidence, analysis and proposed fixes, and export its report.</p></div>")
+
+                    with gr.Group(elem_classes="card"):
+
+                        run_picker = gr.Dropdown([], label="Run", info="Each run keeps its own workflow state.", interactive=True)
+
+                        run_summary = gr.Markdown("No run yet. Start a test from **User Request**.")
 
                     with gr.Row():
 
@@ -755,6 +1069,8 @@ def build_ui() -> gr.Blocks:
                         metric_skip = gr.HTML("<div class='metric'><div class='metric-value'>—</div><div class='metric-label'>Skipped</div></div>")
 
                         metric_time = gr.HTML("<div class='metric'><div class='metric-value' style='font-size:16px'>—</div><div class='metric-label'>Execution Time</div></div>")
+
+                        metric_heal = gr.HTML("<div class='metric'><div class='metric-value'>—</div><div class='metric-label'>Healing Attempts</div></div>")
 
                     with gr.Group(elem_classes="card"):
 
@@ -794,23 +1110,38 @@ def build_ui() -> gr.Blocks:
 
                     with gr.Group(elem_classes="card"):
 
-                        gr.HTML("<div class='card-title'>Execution mode</div><p class='muted'>Sandbox prepares a report preview from your request. It does not run agents or open a browser.</p>")
+                        gr.HTML("<div class='card-title'>Execution mode</div><p class='muted'>Sandbox runs the real LangGraph workflow with simulated agents, browser and fixes (clearly labeled). Turn it off for live mode, which uses your LLM settings and never falls back to mocks.</p>")
 
                         use_sandbox = gr.Checkbox(value=True, label="Use sandbox")
+
+
+                        mock_outcome = gr.Radio(
+                                choices=["PASS", "FAIL"],
+                                value="PASS",
+                                label="Sandbox execution outcome",
+                            )
+
+                        mock_risky = gr.Checkbox(
+                                value=False,
+                                label="Simulate risky fix",
+                            )
+
+                        mock_fixes = gr.Slider(1, 3, value=1, step=1, label="Sandbox: fixes needed before the rerun passes",
+                                               info="Only applies when the outcome is FAIL. 1-2 heal successfully; 3 exhausts the 2-attempt limit and ends FAIL.")
 
                         show_progress = gr.Checkbox(value=True, label="Show execution progress")
 
                     with gr.Group(elem_classes="card"):
 
-                        gr.HTML("<div class='card-title'>LLM configuration</div><p class='muted'>Credentials are stored only for this active UI session. They are not shown in reports or exports.</p>")
+                        gr.HTML("<div class='card-title'>LLM configuration</div><p class='muted'>Used by live mode only. Credentials are validated with a real provider call, kept for this UI session only, and never shown in reports, exports or messages. Sandbox runs do not call any provider.</p>")
 
                         llm_provider = gr.Dropdown(["Groq", "Gemini", "OpenRouter", "Ollama"], value="OpenRouter", label="Provider")
 
-                        llm_model = gr.Textbox(label="Model name", placeholder="Enter the provider's model identifier")
+                        llm_model = gr.Textbox(label="Model name", placeholder="Enter the provider's model identifier (e.g. gemini-2.0-flash)")
 
                         llm_api_key = gr.Textbox(label="API key", type="password", placeholder="Masked and session-only; usually optional for Ollama")
 
-                        save_llm_btn = gr.Button("Save LLM settings")
+                        save_llm_btn = gr.Button("Validate & save LLM settings")
 
                         llm_status = gr.Markdown()
 
@@ -828,9 +1159,31 @@ def build_ui() -> gr.Blocks:
 
         save_llm_btn.click(save_llm_settings, inputs=[llm_provider, llm_model, llm_api_key], outputs=[llm_status, llm_state])
 
-        start.click(validate_and_prepare, inputs=[url, requirements, browser, mode, maximum, timeout, authorization, use_sandbox],
 
-                    outputs=[request_status, run_state, progress, metric_total, metric_pass, metric_fail, metric_skip, metric_time, scenarios_table, scenario_info])
+        results_outputs = [run_state, metric_total, metric_pass, metric_fail, metric_skip, metric_time, metric_heal,
+                           scenarios_table, scenario_info, run_summary, run_picker]
+
+        run_outputs = [request_status, workflow_session, progress, approval_details, approval_buttons, return_btn, run_history]
+
+        start.click(
+            start_graph_workflow,
+            inputs=[url, requirements, browser, mode, maximum, timeout, authorization, use_sandbox,
+                    mock_outcome, mock_risky, mock_fixes, llm_state, run_history],
+            outputs=run_outputs,
+        ).then(refresh_results, inputs=[workflow_session, run_history], outputs=results_outputs)
+
+        approve_btn.click(approve_workflow, inputs=workflow_session, outputs=run_outputs
+        ).then(refresh_results, inputs=[workflow_session, run_history], outputs=results_outputs)
+
+        reject_btn.click(reject_workflow, inputs=workflow_session, outputs=run_outputs
+        ).then(refresh_results, inputs=[workflow_session, run_history], outputs=results_outputs)
+
+        run_picker.input(
+            select_run, inputs=run_picker,
+            outputs=[workflow_session, request_status, progress, approval_details, approval_buttons],
+        ).then(refresh_results, inputs=[workflow_session, run_history], outputs=results_outputs)
+
+        return_btn.click(lambda: "Results & Reports", outputs=nav)
 
         scenarios_table.select(scenario_details, inputs=run_state, outputs=scenario_info)
 
