@@ -57,13 +57,35 @@ def route_after_execute(state: TestRunState) -> str:
 
     return "report"
 
+
 def route_after_fix_approval(state: TestRunState) -> str:
-    decision = state.get("approval_decision")
+    """
+    Route to Apply Fix only when approval
+    and a proposed patch are present.
+    """
 
-    if decision == "approved":
-        return "apply_fix"
+    # 1. Never apply a fix after terminal errors
+    if state.get("terminal_status") in ("ERROR", "BLOCKED"):
+        return "report"
 
-    return "report"
+    # 2. A fix proposal must exist
+    proposal = state.get("fix_proposal")
+
+    if not isinstance(proposal, dict):
+        return "report"
+
+    # 3. The patch cannot be empty
+    patch_diff = proposal.get("patch_diff")
+
+    if not isinstance(patch_diff, str) or not patch_diff.strip():
+        return "report"
+
+    # 4. Only explicit human approval can proceed
+    if state.get("approval_decision") != "approved":
+        return "report"
+
+    return "apply_fix"
+
 
 def route_after_intake(state: TestRunState) -> str:
     if state.get("terminal_status") in ("BLOCKED", "ERROR"):
