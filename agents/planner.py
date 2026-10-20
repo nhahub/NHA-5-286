@@ -5,6 +5,54 @@ Writes: test_plan
 Must not: write Playwright code, exceed the scenario_cap, invent credentials
 """
 
+def generate_plan(request, llm_client=None, sandbox_mode=False):
+
+    if sandbox_mode:
+        return mock_generate_plan(request)
+
+    # return real_generate_plan(request, llm_client)   //call llm
+    raise NotImplementedError(
+        "Real Planner is not implemented yet."
+    )
+
+
+
+from contracts.scenario import Scenario
+
+
+def mock_generate_plan(request):
+    scenario = Scenario(
+        name="Invalid Login",
+        steps=[
+            {
+                "action": "navigate",
+                "target": request.get("url") or "https://example.com/login"
+            },
+            {
+                "action": "fill",
+                "target": "username",
+                "value": "invalid_user"
+            },
+            {
+                "action": "fill",
+                "target": "password",
+                "value": "wrong_password"
+            },
+            {
+                "action": "click",
+                "target": "Login"
+            },
+            {
+                "action": "verify",
+                "target": "Invalid credentials"
+            }
+        ],
+        expected_result="Error message displayed"
+    )
+
+    return [scenario.model_dump()]
+
+
 # def build_planner_agent(model: str, mcp_tools: list) -> Runnable:
 #     -> Creates a LangChain agent with the planner system prompt (prompts/planner.md),
 #        structured output (list[Scenario]), and allowed MCP tools:

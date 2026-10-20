@@ -161,9 +161,15 @@ def test_state_full_fix_proposal_validates():
 def test_test_data_fixtures_structure():
     data = load(TEST_DATA, "fixtures.json")
     assert "sample_requirements" in data
-    assert "blocked_urls" in data
-    assert "model_strings" in data
     assert isinstance(data["sample_requirements"], list)
     assert len(data["sample_requirements"]) >= 1
-    req = data["sample_requirements"][0]
-    assert "text" in req and "authorization" in req
+
+    ids = [r["id"] for r in data["sample_requirements"]]
+    assert len(set(ids)) == len(ids)  # ids are unique
+    for req in data["sample_requirements"]:
+        assert {"id", "text", "authorization", "expected_terminal_status"} <= req.keys()
+        assert req["expected_terminal_status"] in {"PASS", "FAIL", "BLOCKED", "ERROR"}
+
+    # Credentials: only environment variable NAMES, never values
+    assert data["credentials_env"] == {"username": "TEST_USERNAME", "password": "TEST_PASSWORD"}
+    assert "users" not in data  # no literal credentials in committed data

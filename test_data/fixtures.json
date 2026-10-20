@@ -1,10 +1,63 @@
 {
-  "version": 1,
-  "_note": "No secret values in this file. Credentials come from environment variables (.env, never committed); *_env fields hold variable NAMES only.",
-
-  "credentials": {
-    "standard": { "username_env": "TEST_USERNAME", "password_env": "TEST_PASSWORD" },
-    "locked":   { "username_env": "TEST_LOCKED_USERNAME", "password_env": "TEST_LOCKED_PASSWORD" }
+  "version": 2,
+  "_note": "End-to-end test data: sample requirements with the expected terminal status, credential variable NAMES, checkout values and Arabic values for assertions. Intake vectors (URLs, models, caps) live in fixtures/intake_cases.json. No secret values here: credentials come from environment variables (.env, never committed).",
+  "sample_requirements": [
+    {
+      "id": "req-001",
+      "text": "Test the TodoMVC homepage: verify that the page loads, a user can add a new item, and the item counter updates correctly.",
+      "url": "https://demo.playwright.dev/todomvc",
+      "authorization": true,
+      "credentials_supplied": false,
+      "expected_terminal_status": "PASS",
+      "must_hold": {
+        "max_scenarios": 3,
+        "english_output": true
+      }
+    },
+    {
+      "id": "req-002",
+      "text": "اختبر أن صفحة قائمة المهام تعرض العناصر بشكل صحيح وأن مربع الإدخال يقبل النص العربي.",
+      "url": "https://demo.playwright.dev/todomvc",
+      "authorization": true,
+      "credentials_supplied": false,
+      "expected_terminal_status": "PASS",
+      "must_hold": {
+        "max_scenarios": 3,
+        "english_output": true,
+        "arabic_values_allowed_in_assertions": true
+      },
+      "_note": "Arabic requirements are supported; all agent outputs are in English."
+    },
+    {
+      "id": "req-003",
+      "text": "Login with valid credentials",
+      "url": "https://example.com",
+      "authorization": true,
+      "credentials_supplied": false,
+      "expected_terminal_status": "BLOCKED",
+      "must_hold": {
+        "no_invented_credentials": true,
+        "no_invented_login_flow": true
+      },
+      "_note": "The site has no login form and no credentials are supplied. Expected status is a first guess: confirm after the first real run."
+    },
+    {
+      "id": "req-004",
+      "text": "Log in with the valid test user and verify the product list is shown.",
+      "url": "https://www.saucedemo.com",
+      "authorization": true,
+      "credentials_supplied": false,
+      "expected_terminal_status": "BLOCKED",
+      "must_hold": {
+        "scenario_reason": "missing test data",
+        "no_invented_credentials": true
+      },
+      "_note": "A login scenario without TEST_USERNAME / TEST_PASSWORD must be BLOCKED: missing test data."
+    }
+  ],
+  "credentials_env": {
+    "username": "TEST_USERNAME",
+    "password": "TEST_PASSWORD"
   },
   "checkout": {
     "first_name": "Test",
@@ -15,29 +68,16 @@
     "todo_item": "شراء الخبز",
     "todo_item_2": "إنهاء التقرير"
   },
-
-  "_legacy_note": "LEGACY KEYS below are kept only until P1's tests read fixtures/intake_cases.json. Do not edit them; edit that file instead.",
-  "sample_requirements": [
-    {
-      "id": "req-001",
-      "text": "Test the TodoMVC homepage: verify that the page loads, a user can add a new item, and the item counter updates correctly.",
-      "url": "https://demo.playwright.dev/todomvc",
-      "authorization": true
+  "credentials": {
+    "standard": {
+      "username_env": "TEST_USERNAME",
+      "password_env": "TEST_PASSWORD"
     },
-    {
-      "id": "req-002",
-      "text": "اختبر أن صفحة قائمة المهام تعرض العناصر بشكل صحيح وأن مربع الإدخال يقبل النص العربي.",
-      "url": "https://demo.playwright.dev/todomvc",
-      "authorization": true,
-      "_note": "Arabic requirements are supported; all agent outputs are in English"
-    },
-    {
-      "id": "req-003",
-      "text": "Login with valid credentials",
-      "url": "https://example.com",
-      "authorization": true
+    "locked": {
+      "username_env": "TEST_LOCKED_USERNAME",
+      "password_env": "TEST_LOCKED_PASSWORD"
     }
-  ],
+  },
   "blocked_urls": [
     "http://localhost:3000",
     "http://127.0.0.1:8080",
@@ -47,8 +87,22 @@
     "http://169.254.169.254"
   ],
   "model_strings": {
-    "valid": ["openai:gpt-4o", "openai:gpt-4o-mini", "anthropic:claude-sonnet-4-6"],
-    "invalid": ["gpt-4o", "local:llama3", "", "openai/"]
+    "valid": [
+      "openai:gpt-4o",
+      "openai:gpt-4o-mini",
+      "anthropic:claude-sonnet-4-6"
+    ],
+    "invalid": [
+      "gpt-4o",
+      "local:llama3",
+      "",
+      "openai/"
+    ]
   },
-  "scenario_cap_values": { "default": 3, "minimum": 1, "maximum": 5 }
+  "scenario_cap_values": {
+    "default": 3,
+    "minimum": 1,
+    "maximum": 5
+  },
+  "_legacy_note": "LEGACY KEYS below are kept only until P1's tests read fixtures/intake_cases.json. Do not edit them; edit that file instead."
 }

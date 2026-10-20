@@ -1,33 +1,100 @@
 """
-Purpose: TestRunState TypedDict — the single shared state object passed through every LangGraph node.
+Purpose: TestRunState TypedDict — the single shared state object
+passed through every LangGraph node.
+
 Reads: N/A (type definition only)
 Writes: N/A (type definition only)
-Must not: contain business logic
+Must not: contain business logic.
 """
 
-# All field names taken verbatim from the spec (§4 Shared State):
-#
-# class TestRunState(TypedDict):
-#     run_id: str                          # unique run id; names runs/<run_id>/ folder
-#     test_request: dict                   # TestRequest model as dict
-#     target_url: str | None               # resolved URL with source annotation
-#     test_plan: list[dict]                # list of Scenario dicts from the Planner
-#     generated_test_files: list[str]      # paths of the .spec.ts files
-#     validation_status: str | None        # "valid" | "invalid" | None
-#     validation_errors: list[str]         # compiler / API errors from the validator
-#     generation_retry_count: int          # regeneration attempts, max 2
-#     human_review_decision: str | None    # "edit_and_resubmit" | "regenerate_with_note" | "skip_scenario" | "reject" | None
-#     human_review_count: int              # review rounds per scenario, max 2
-#     reviewer_note: str | None            # note written by the reviewer for codegen
-#     edited_code: str | None             # code edited by the reviewer
-#     execution_result: dict | None        # raw Playwright JSON reporter output
-#     execution_evidence: list[dict]       # list of normalised Evidence dicts
-#     failure_analysis: dict | None        # FailureAnalysis dict from the Analyzer
-#     failure_type: str | None             # validated failure class (Test/Application/Environment/Infrastructure)
-#     fix_proposal: dict | None            # FixProposal dict from the Fix Proposal agent
-#     approval_decision: str | None        # "approved" | "rejected" | "auto" | None
-#     healing_retry_count: int             # heal attempts, max 2, counted per test
-#     models_used: dict[str, str]          # {agent_name: model_string} for the report
-#     terminal_status: str | None          # "PASS" | "FAIL" | "BLOCKED" | "ERROR" | None
-#     errors: list[str]                    # node crash messages; report still runs
-#     report_path: str | None             # path to the rendered report file
+from __future__ import annotations
+
+from typing import TypedDict
+
+
+class TestRunState(TypedDict):
+    # =====================================================
+    # 1. Run Information
+    # =====================================================
+
+    run_id: str
+    test_request: dict
+    target_url: str | None
+
+    # =====================================================
+    # 2. Planning
+    # =====================================================
+
+    test_plan: list[dict]
+
+    # =====================================================
+    # 3. Code Generation & Validation
+    # =====================================================
+
+    generated_test_files: list[str]
+
+    validation_status: str | None
+    validation_errors: list[str]
+
+    generation_retry_count: int
+
+    # =====================================================
+    # 4. Human Code Review
+    # =====================================================
+
+    human_review_decision: str | None
+    human_review_count: int
+
+    reviewer_note: str | None
+    edited_code: str | None
+
+    # =====================================================
+    # 5. Execution
+    # =====================================================
+
+    execution_result: dict | None
+    execution_evidence: list[dict]
+
+    # =====================================================
+    # 6. Failure Analysis
+    # =====================================================
+
+    failure_analysis: dict | None
+    failure_type: str | None
+
+    # =====================================================
+    # 7. Fix Proposal & Human Fix Approval
+    # =====================================================
+
+    fix_proposal: dict | None
+
+    # "approved" | "rejected" | None
+    approval_decision: str | None
+
+    # Supports a single counter or per-scenario counters.
+    healing_retry_count: int | dict[str, int]
+
+    # =====================================================
+    # 8. Models
+    # =====================================================
+
+    models_used: dict[str, str]
+
+    # =====================================================
+    # 9. Final Report
+    # =====================================================
+
+    terminal_status: str | None
+    errors: list[str]
+    report_path: str | None
+
+    # =====================================================
+    # 10. Sandbox Mode
+    # =====================================================
+
+    sandbox_mode: bool
+
+    mock_fix_applied: bool
+    mock_execution_outcome: str
+    mock_risky: bool
+    mock_fixes_needed: int

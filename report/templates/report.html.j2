@@ -1,83 +1,177 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en" dir="ltr">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AI Test Report — {{ report.run_id }}</title>
-  <style>
-    body { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; color: #1a1a1a; }
-    h1 { border-bottom: 2px solid #e0e0e0; padding-bottom: .5rem; }
-    .badge { display: inline-block; padding: .2rem .6rem; border-radius: 4px; font-weight: 700; font-size: .85rem; }
-    .PASS { background: #d4edda; color: #155724; }
-    .FAIL { background: #f8d7da; color: #721c24; }
-    .BLOCKED { background: #fff3cd; color: #856404; }
-    .ERROR { background: #f5c6cb; color: #491217; }
-    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
-    th, td { border: 1px solid #dee2e6; padding: .5rem .75rem; text-align: left; }
-    th { background: #f8f9fa; }
-    pre { background: #f8f9fa; padding: 1rem; border-radius: 4px; overflow-x: auto; font-size: .85rem; }
-    blockquote { border-left: 4px solid #dee2e6; margin: 0; padding-left: 1rem; color: #555; }
-    .meta { color: #6c757d; font-size: .9rem; }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Test Run Report {{ r.run_id }}</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #1c1c1e; margin: 2rem auto; max-width: 960px; padding: 0 1rem; line-height: 1.5; }
+  h1 { margin-bottom: .25rem; }
+  h2 { margin-top: 2rem; border-bottom: 1px solid #d0d0d5; padding-bottom: .25rem; }
+  h3 { margin-bottom: .25rem; }
+  table { border-collapse: collapse; width: 100%; margin: .75rem 0; }
+  th, td { border: 1px solid #d0d0d5; padding: .4rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #f2f2f7; }
+  pre { background: #f6f8fa; border: 1px solid #d0d0d5; border-radius: 6px; padding: .75rem; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+  .badge { display: inline-block; padding: .15rem .6rem; border-radius: 999px; font-weight: 700; color: #fff; }
+  .s-pass, .s-passed { background: #1a7f37; }
+  .s-fail, .s-failed { background: #cf222e; }
+  .s-blocked { background: #9a6700; }
+  .s-error, .s-not_run { background: #6e40c9; }
+  .note { color: #57606a; font-style: italic; }
+  .diff-del { color: #cf222e; } .diff-add { color: #1a7f37; }
+  @media print { body { margin: 0; max-width: none; } }
+</style>
 </head>
 <body>
+<h1>Test Run Report</h1>
+<p><span class="badge s-{{ (r.terminal_status or 'ERROR')|lower }}">{{ r.terminal_status or "ERROR" }}</span></p>
 
-<h1>AI Test Run Report</h1>
-<p class="meta">
-  Run ID: <code>{{ report.run_id }}</code> &nbsp;·&nbsp;
-  <span class="badge {{ report.terminal_status }}">{{ report.terminal_status }}</span> &nbsp;·&nbsp;
-  {{ "%.1f"|format(report.duration_seconds or 0) }}s &nbsp;·&nbsp;
-  {{ generated_at }}
-</p>
+<table>
+  <tr><th>Run ID</th><td>{{ r.run_id or "unknown" }}</td></tr>
+  <tr><th>Target URL</th><td>{{ r.target_url.url or "none" }}{% if r.target_url.source %} (from {{ r.target_url.source }}){% endif %}</td></tr>
+  <tr><th>Duration</th><td>{% if r.duration_s is number %}{{ "%.1f"|format(r.duration_s) }} s{% else %}n/a{% endif %}</td></tr>
+  <tr><th>Regenerations</th><td>{{ r.attempts.generation_retries if r.attempts.generation_retries is number else "n/a" }}</td></tr>
+  <tr><th>Healing attempts</th><td>{% if r.attempts.healing %}{% for sid, n in r.attempts.healing.items() %}{{ sid }}: {{ n }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}none{% endif %}</td></tr>
+</table>
 
 <h2>Requirements</h2>
-<blockquote>{{ report.requirements }}</blockquote>
-{% if requirements_note %}<p class="meta"><em>{{ requirements_note }}</em></p>{% endif %}
+<pre dir="auto">{{ r.requirements_text or "(not provided)" }}</pre>
+{% if r.requirements_note %}
+<p class="note">{{ r.requirements_note }}</p>
+{% endif %}
 
 <h2>Summary</h2>
 <table>
-  <tr><th>Metric</th><th>Value</th></tr>
-  <tr><td>Terminal status</td><td><span class="badge {{ report.terminal_status }}">{{ report.terminal_status }}</span></td></tr>
-  <tr><td>URL tested</td><td>{{ report.target_url or "N/A" }}</td></tr>
-  <tr><td>Total scenarios</td><td>{{ report.scenarios | length }}</td></tr>
-  <tr><td>Generation attempts</td><td>{{ report.generation_attempts }}</td></tr>
-  <tr><td>Heal attempts</td><td>{{ report.heal_attempts }}</td></tr>
+  <tr><th>Total</th><th>Passed</th><th>Failed</th><th>Blocked</th></tr>
+  <tr><td>{{ r.counts.total or 0 }}</td><td>{{ r.counts.passed or 0 }}</td><td>{{ r.counts.failed or 0 }}</td><td>{{ r.counts.blocked or 0 }}</td></tr>
 </table>
 
-<h2>Scenario Results</h2>
-<table>
-  <tr><th>Scenario</th><th>Status</th><th>Failure type</th><th>Subtype</th><th>Root cause</th></tr>
-  {% for s in report.scenarios %}
-  <tr>
-    <td>{{ s.name }}</td>
-    <td><span class="badge {{ s.status }}">{{ s.status }}</span></td>
-    <td>{{ s.failure_type or "—" }}</td>
-    <td>{{ s.subtype or "—" }}</td>
-    <td>{{ s.root_cause or "—" }}</td>
-  </tr>
-  {% endfor %}
-</table>
-
-<h2>Models Used</h2>
+<h2>Models used</h2>
+{% if r.models_used %}
 <table>
   <tr><th>Agent</th><th>Model</th></tr>
-  {% for agent, model in report.models_used.items() %}
-  <tr><td>{{ agent }}</td><td><code>{{ model }}</code></td></tr>
-  {% endfor %}
+{% for agent, model in r.models_used.items() %}
+  <tr><td>{{ agent }}</td><td>{{ model }}</td></tr>
+{% endfor %}
 </table>
-
-{% if report.defect_candidates %}
-<h2>Defect Candidates <small>(Application failures — future issue-tracker)</small></h2>
-<ul>{% for d in report.defect_candidates %}<li>{{ d }}</li>{% endfor %}</ul>
+{% else %}
+<p>No model was used in this run.</p>
 {% endif %}
 
-{% if report.errors %}
-<h2>Errors</h2>
-<ul>{% for e in report.errors %}<li><code>{{ e }}</code></li>{% endfor %}</ul>
+<h2>Scenarios</h2>
+{% if r.scenarios %}
+<table>
+  <tr><th>ID</th><th>Scenario</th><th>Status</th><th>Duration</th><th>Notes</th></tr>
+{% for s in r.scenarios %}
+  <tr>
+    <td>{{ s.id }}</td><td>{{ s.name }}</td>
+    <td><span class="badge s-{{ (s.status or 'not_run')|lower }}">{{ s.status }}</span></td>
+    <td>{% if s.duration_s is number %}{{ "%.1f"|format(s.duration_s) }} s{% else %}n/a{% endif %}</td>
+    <td>{{ s.blocked_reason or "" }}</td>
+  </tr>
+{% endfor %}
+</table>
+{% for s in r.scenarios %}
+<h3>{{ s.id }}: {{ s.name }}</h3>
+<ol>
+{% for step in s.steps or [] %}
+  <li><code>{{ step.action }}</code>{% if step.target %} {{ step.target }}{% endif %}{% if step.value %} = <span dir="auto">{{ step.value }}</span>{% endif %}</li>
+{% endfor %}
+</ol>
+<p><strong>Expected result:</strong> {{ s.expected_result or "n/a" }}</p>
+{% endfor %}
+{% else %}
+<p>No scenarios were produced.</p>
 {% endif %}
+{% if r.failure_analysis %}
 
-<hr />
-<p class="meta">AI Test Automation &nbsp;·&nbsp; English report always &nbsp;·&nbsp; Application code is never changed automatically.</p>
+<h2>Failure analysis</h2>
+{% for f in r.failure_analysis %}
+<h3>{{ f.scenario_id }}: {{ f.failure_type }}{% if f.subtype %} / {{ f.subtype }}{% endif %}</h3>
+<ul>
+  <li><strong>Confidence:</strong> {{ f.confidence or "n/a" }}</li>
+  <li><strong>Application bug:</strong> {{ "yes" if f.application_bug else "no" }}</li>
+  <li><strong>Fix required:</strong> {{ "yes" if f.fix_required else "no" }}</li>
+  <li><strong>Root cause:</strong> {{ f.root_cause }}</li>
+  <li><strong>Evidence:</strong> {{ f.evidence }}</li>
+</ul>
+{% if f.explanation %}
+<p>{{ f.explanation }}</p>
+{% endif %}
+{% endfor %}
+{% endif %}
+{% if r.evidence %}
 
+<h2>Evidence</h2>
+{% for e in r.evidence %}
+<h3>{{ e.scenario_id }}</h3>
+<ul>
+  <li><strong>Final URL:</strong> {{ e.final_url or "n/a" }}</li>
+  <li><strong>Screenshot:</strong> {{ e.screenshot or "n/a" }}</li>
+  <li><strong>Trace:</strong> {{ e.trace or "n/a" }}</li>
+{% if e.console_errors %}
+  <li><strong>Console errors:</strong>
+    <ul>
+{% for c in e.console_errors %}
+      <li><code>{{ c.type }}</code> {{ c.text }}</li>
+{% endfor %}
+    </ul>
+  </li>
+{% endif %}
+{% if e.failed_requests %}
+  <li><strong>Failed requests:</strong>
+    <ul>
+{% for n in e.failed_requests %}
+      <li>{{ n.method }} {{ n.url }} &rarr; {{ n.status if n.status is number else n.failure }}</li>
+{% endfor %}
+    </ul>
+  </li>
+{% endif %}
+</ul>
+{% endfor %}
+{% endif %}
+{% if r.patches %}
+
+<h2>Patches</h2>
+{% for p in r.patches %}
+<h3>{{ p.scenario_id }}: {{ "APPLIED" if p.applied else "NOT APPLIED" }}{% if p.risky %} (risky){% endif %}</h3>
+<ul>
+  <li><strong>Reason:</strong> {{ p.reason }}</li>
+  <li><strong>Approval:</strong> {{ p.approval or "n/a" }}</li>
+{% if p.requirement %}
+  <li><strong>Original requirement:</strong> <span dir="auto">{{ p.requirement }}</span></li>
+{% endif %}
+</ul>
+<pre>{{ p.diff }}</pre>
+{% endfor %}
+{% endif %}
+{% if r.generated_code %}
+
+<h2>Generated code</h2>
+{% for g in r.generated_code %}
+<h3>{{ g.file }}{% if g.patched %} (patched){% endif %}</h3>
+<pre>{{ g.code }}</pre>
+{% endfor %}
+{% endif %}
+{% if r.defect_candidates %}
+
+<h2>Defect candidates</h2>
+<p class="note">Application failures only. Nothing is filed automatically; an issue tracker integration is a future phase.</p>
+<ul>
+{% for d in r.defect_candidates %}
+  <li><strong>{{ d.scenario_id }}:</strong> {{ d.summary }}</li>
+{% endfor %}
+</ul>
+{% endif %}
+{% if r.errors %}
+
+<h2>System errors</h2>
+<ul>
+{% for e in r.errors %}
+  <li>{{ e }}</li>
+{% endfor %}
+</ul>
+{% endif %}
 </body>
 </html>
