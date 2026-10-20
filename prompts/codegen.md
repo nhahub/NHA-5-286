@@ -33,6 +33,9 @@ Return one JSON object and nothing else:
        if (!username || !password) throw new Error('TEST_USERNAME and TEST_PASSWORD must be set');
 
 6. Use only the public Playwright API.
+7. Do not use `page.evaluate`, `evaluateHandle` or `$eval`. Click, type and set values with locator actions (`click`, `fill`, `check`, `selectOption`, `press`).
+8. No custom timeouts: no `test.setTimeout`, no `test.slow`, and no `{ timeout: ... }` option on any call. The global timeouts are fixed.
+9. Never wait for `'networkidle'`, in `waitForLoadState` or in `goto`. Wait through web-first assertions.
 
 ## Locators (in this order of preference)
 
@@ -67,8 +70,9 @@ An action not in this table: use the closest web-first equivalent, and never inv
 
 ## Retries
 
-- If `validation_errors` is non-empty, edit `previous_code` to fix exactly those errors. Keep everything else unchanged, including `file_name`.
+ - If `validation_errors` is non-empty, edit `previous_code` to fix exactly those errors. Keep everything else unchanged. Each error looks like `[rule] file:line message`; the rule id names the hard rule or compiler code you violated.
 - If `reviewer_note` is present, follow it, but never break a hard rule.
+- Fix type errors with correct types or Playwright's own types (`Page`, `Locator`); never use `any` or `@ts-ignore`.
 
 ## Safety
 
