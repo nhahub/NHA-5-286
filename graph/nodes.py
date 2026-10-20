@@ -9,7 +9,7 @@ Must not: perform routing decisions (routing lives in routing.py) or contain age
 from uuid import uuid4
 from langchain_core.runnables import RunnableConfig
 from agents.codegen import run_codegen
-from graph.state import TestRunState
+from graph.state import TestRunState, is_mock_mode
  # Live mode: use the model the user selected in Settings. Credentials come from the
  # per-run registry (never from graph state) and there is no fallback to the mock backend.
 from llm.client import CodegenLLMBackend
@@ -51,14 +51,14 @@ def planner_node(state: TestRunState) -> dict:
 
     scenarios = generate_plan(
         request=state["test_request"],
-        sandbox_mode=state.get("sandbox_mode", False),
+        mock_mode=is_mock_mode(state),
     )
 
     return {"test_plan": scenarios}
 
 
 def codegen_node(state: TestRunState, config: RunnableConfig | None = None) -> dict:
-    if state.get("sandbox_mode", False):
+    if is_mock_mode(state):
         from llm.mock_codegen_backend import MockCodegenBackend
 
         return run_codegen(
@@ -80,7 +80,7 @@ def codegen_node(state: TestRunState, config: RunnableConfig | None = None) -> d
 
 
 def validate_node(state: TestRunState) -> dict:
-    if state.get("sandbox_mode", False):
+    if is_mock_mode(state):
         return {
             "validation_status": "valid",
             "validation_errors": [],
@@ -92,7 +92,7 @@ def validate_node(state: TestRunState) -> dict:
 
 
 def execute_node(state: TestRunState) -> dict:
-    if state.get("sandbox_mode", False):
+    if is_mock_mode(state):
         return mock_run_execute(state)
 
     raise NotImplementedError(
@@ -101,7 +101,7 @@ def execute_node(state: TestRunState) -> dict:
 
 
 def analyze_node(state: TestRunState) -> dict:
-    if state.get("sandbox_mode", False):
+    if is_mock_mode(state):
         return mock_analyze(state)
 
     raise NotImplementedError(
@@ -115,8 +115,8 @@ def fix_proposal_node(
     config: RunnableConfig | None = None,
 ) -> dict:
 
-    # Keep the existing Sandbox behavior
-    if state.get("sandbox_mode", False):
+    # Keep the existing mock-mode behavior
+    if is_mock_mode(state):
         return mock_propose_fix(state)
 
     try:
@@ -180,7 +180,7 @@ def fix_approval_node(state: TestRunState) -> dict:
 
 
 def apply_fix_node(state: TestRunState) -> dict:
-    if state.get("sandbox_mode", False):
+    if is_mock_mode(state):
         return mock_apply_fix(state)
 
     raise NotImplementedError(

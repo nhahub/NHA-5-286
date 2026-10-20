@@ -4,7 +4,7 @@ from graph.build_graph import build_graph
 graph = build_graph()
 
 state = {
-    "sandbox_mode": True,
+    "mock_mode": True,
     "mock_execution_outcome": "PASS",
     "test_request": {
         "url": "https://example.com/login",

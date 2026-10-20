@@ -35,7 +35,7 @@ Must not: call any LLM, modify state, or guess the next node
 
 
 
-from graph.state import TestRunState
+from graph.state import TestRunState, is_mock_mode
 
 
 def route_after_execute(state: TestRunState) -> str:
@@ -122,8 +122,8 @@ def route_after_analyze(state: TestRunState) -> str:
     if state.get("healing_retry_count", 0) >= 2:
         return "report"
 
-    # 4. Preserve existing Sandbox behavior
-    if state.get("sandbox_mode", False):
+    # 4. Preserve existing mock-mode behavior
+    if is_mock_mode(state):
         return "fix_proposal"
 
     # 5. Check the real Analyzer output

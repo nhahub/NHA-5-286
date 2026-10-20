@@ -19,7 +19,7 @@ def test_case(risky: bool, decision: str):
     }
 
     state = {
-        "sandbox_mode": True,
+        "mock_mode": True,
         "mock_execution_outcome": "FAIL",
         "mock_risky": risky,
         "test_request": {
