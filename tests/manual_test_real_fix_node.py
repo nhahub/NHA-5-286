@@ -51,7 +51,7 @@ with TemporaryDirectory(
 
     state = {
         "run_id": run_dir.name,
-        "sandbox_mode": False,
+        "mock_mode": False,
         "terminal_status": "FAIL",
         "failure_type": "Test",
         "test_request": {

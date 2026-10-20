@@ -12,10 +12,10 @@ def _last(gen):
     return frame
 
 
-def _start(outcome="FAIL", fixes=1, sandbox=True, llm_cfg=None):
+def _start(outcome="FAIL", fixes=1, use_mock=True, llm_cfg=None):
     return app.start_graph_workflow(
         "https://example.com/login", "Verify invalid login", "Chromium", "Headless", 3, 30,
-        True, sandbox, outcome, False, fixes, llm_cfg, [],
+        True, use_mock, outcome, False, fixes, llm_cfg, [],
     )
 
 
@@ -97,13 +97,13 @@ def test_results_use_real_state():
 
 
 def test_live_mode_requires_validated_llm_and_never_mocks():
-    frame = _last(_start(sandbox=False, llm_cfg=None))
+    frame = _last(_start(use_mock=False, llm_cfg=None))
     assert "validated LLM settings" in frame[0] and frame[1] is not llm_settings
 
 
 def test_live_mode_stops_at_unimplemented_stage_without_mock():
     cfg = {"provider": "Gemini", "model": "m", "api_key": "SECRET-KEY-123", "validated": True}
-    final = _last(_start(sandbox=False, llm_cfg=cfg))
+    final = _last(_start(use_mock=False, llm_cfg=cfg))
     run = app.build_run(final[1]["thread_id"])
     assert "not implemented" in final[0].lower() and "No mock" in final[0]
     assert run["stages"]["Planner"] == "Failed" and run["execution_time"] == "Not executed"

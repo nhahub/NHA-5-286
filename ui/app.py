@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = build_graph()
 
 
-EXPORT_DIR = ROOT / "runs" / "sandbox_reports"
+EXPORT_DIR = ROOT / "runs" / "mock_reports"
 
 
 
@@ -302,11 +302,11 @@ def navigate(page: str) -> tuple[gr.update, gr.update, gr.update]:
 
 
 
-def session_mode_label(use_sandbox: bool) -> str:
+def session_mode_label(use_mock: bool) -> str:
 
-    sandbox_enabled = use_sandbox is True or str(use_sandbox).strip().lower() in {"true", "1", "yes", "on"}
+    mocking_enabled = use_mock is True or str(use_mock).strip().lower() in {"true", "1", "yes", "on"}
 
-    mode = "Sandbox mode (simulated)" if sandbox_enabled else "Live mode (real agents only)"
+    mode = "Mock mode (simulated, no real LLM)" if mocking_enabled else "Live mode (real agents only)"
 
     return f"<div class='session-mode'>Session mode<br><b>{mode}</b></div>"
 
@@ -362,7 +362,7 @@ def scenario_details(run: dict | None, evt: gr.SelectData) -> str:
 
 def _report_notice(run: dict) -> str:
     if run["simulated"]:
-        return "SIMULATED sandbox run: agents, browser execution, and fixes are mocks. This is not a real test result."
+        return "SIMULATED mock run: agents, browser execution, and fixes are mocks. This is not a real test result."
     return "Live run."
 
 
@@ -656,7 +656,7 @@ def _advance(thread_id: str, graph_input):
     except NotImplementedError as exc:
         stage = next((s for s, st in tracker.status.items() if st in tracker.ACTIVE), "a stage")
         info["error"] = (f"The live workflow stopped at **{stage}**: {_scrub(exc, info)} "
-                         "No mock or sandbox data was substituted.")
+                         "No mock data was substituted.")
         tracker.fail_running("not implemented")
     except Exception as exc:
         info["error"] = f"{type(exc).__name__}: {_scrub(exc, info)}"
@@ -685,7 +685,7 @@ def _status_text(thread_id: str) -> str:
         return f"### Workflow stopped\n{info['error']}"
     if info.get("paused"):
         return f"Workflow paused for human approval. Healing attempts used so far: {healing} of {MAX_HEALING}."
-    label = "SIMULATED" if info["sandbox"] else "LIVE"
+    label = "SIMULATED" if info["mock"] else "LIVE"
     return (f"Workflow completed: {values.get('terminal_status', 'UNKNOWN')} ({label}). "
             f"Healing attempts used: {healing} of {MAX_HEALING}.")
 
@@ -729,7 +729,7 @@ def _view(thread_id: str | None, status: str, session=NOOP, history=NOOP):
     return status, session, _progress_html(thread_id), details, buttons, gr.update(visible=True), history
 
 
-def start_graph_workflow(url, requirements, browser, mode, maximum, timeout, authorization, use_sandbox,
+def start_graph_workflow(url, requirements, browser, mode, maximum, timeout, authorization, use_mock,
                          mock_outcome, mock_risky, mock_fixes=1, llm_cfg=None, history=None):
     """Start the LangGraph workflow and stream real node progress to the UI."""
     history = list(history or [])
@@ -747,11 +747,11 @@ def start_graph_workflow(url, requirements, browser, mode, maximum, timeout, aut
         return
 
     llm_public, model_string, settings = None, None, None
-    if not use_sandbox:
+    if not use_mock:
         cfg = llm_cfg or {}
         if not cfg.get("validated"):
             yield _view(None, "### Live mode needs validated LLM settings\nOpen **Settings → LLM configuration** and "
-                              "save valid credentials, or enable **Use sandbox** for a simulated run. "
+                              "save valid credentials, or enable **Use mock mode** for a simulated run. "
                               "No mock data is used in live mode.")
             return
         settings = LLMSettings(cfg["provider"], cfg["model"], cfg.get("api_key", ""), True)
@@ -763,7 +763,7 @@ def start_graph_workflow(url, requirements, browser, mode, maximum, timeout, aut
 
     thread_id = str(uuid4())
     info = {"thread_id": thread_id, "tracker": StageTracker(), "trail": [], "error": None, "paused": False,
-            "sandbox": bool(use_sandbox), "started": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "mock": bool(use_mock), "started": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "ended": None, "lock": threading.Lock(), "llm": llm_public,
             "secret": effective_key(settings.provider, settings.api_key) if settings else "",
             "meta": {"url": url.strip(), "requirements": requirements.strip(), "browser": browser,
@@ -776,12 +776,12 @@ def start_graph_workflow(url, requirements, browser, mode, maximum, timeout, aut
     request = {"url": url.strip(), "requirements": requirements.strip(), "scenario_cap": int(maximum),
                "authorization": bool(authorization)}
     initial_state = {"test_request": request, "healing_retry_count": 0, "errors": []}
-    if use_sandbox:
-        initial_state.update(sandbox_mode=True, mock_execution_outcome=mock_outcome, mock_risky=bool(mock_risky),
+    if use_mock:
+        initial_state.update(mock_mode=True, mock_execution_outcome=mock_outcome, mock_risky=bool(mock_risky),
                              mock_fixes_needed=int(mock_fixes))
     else:
         request.update(planner_model=model_string, codegen_model=model_string, healer_model=model_string)
-        initial_state["sandbox_mode"] = False
+        initial_state["mock_mode"] = False
         register_run_credentials(thread_id, settings)
 
     info["tracker"].begin("intake")
@@ -846,7 +846,7 @@ def build_run(thread_id: str) -> dict | None:
     values = _snapshot_values(thread_id)
     plan = values.get("test_plan") or []
     result = values.get("execution_result") or {}
-    simulated = bool(result.get("simulated")) or info["sandbox"]
+    simulated = bool(result.get("simulated")) or info["mock"]
     tag = " (simulated)" if simulated else ""
     tests = {t.get("scenario_name"): t for t in result.get("tests", [])}
     evidence = {e.get("scenario_name"): e for e in values.get("execution_evidence") or []}
@@ -906,8 +906,8 @@ def build_run(thread_id: str) -> dict | None:
     passed_n = sum(r["Status"] == "Passed" for r in rows)
     return {
         "run_id": values.get("run_id") or thread_id, "thread_id": thread_id, "created_at": info["started"],
-        "mode": "Sandbox — simulated agents and browser" if info["sandbox"] else "Live",
-        "simulated": info["sandbox"], "terminal_status": terminal, "healing_attempts": healing,
+        "mode": "Mock mode — simulated agents and browser" if info["mock"] else "Live",
+        "simulated": info["mock"], "terminal_status": terminal, "healing_attempts": healing,
         "models_used": values.get("models_used") or {}, "errors": list(values.get("errors") or []),
         "trail": list(info["trail"]), "workflow_error": info.get("error"), "paused": bool(info.get("paused")),
         "llm": info.get("llm"), **info["meta"], "scenarios": rows,
@@ -922,7 +922,7 @@ def run_summary_markdown(run: dict | None) -> str:
         return "No run yet. Start a test from **User Request**."
     models = ", ".join(f"{k}: {v}" for k, v in run["models_used"].items()) or "none recorded"
     if run["simulated"]:
-        llm = "Sandbox — no LLM provider is called; LLM settings are not used."
+        llm = "Mock mode — no LLM provider is called; LLM settings are not used."
     else:
         llm = f"{run['llm']['provider']} · {run['llm']['model']} (key not shown)" if run["llm"] else "n/a"
     lines = [f"**Result:** {run['terminal_status']}" + (" — **awaiting your approval on the User Request page**" if run["paused"] else ""),
@@ -947,7 +947,7 @@ def refresh_results(session, history):
     cards = [gr.update(value=metric_card(v, lbl)) for v, lbl in zip(values, labels)]
     table = [[s["Scenario ID"], s["Scenario Name"], s["Status"], s["Duration"], s["Error Summary"]]
              for s in run["scenarios"]] if run else []
-    choices = [(f"{RUNS[t]['started'][11:19]} · {'Sandbox' if RUNS[t]['sandbox'] else 'Live'} · {RUNS[t]['meta']['url']}", t)
+    choices = [(f"{RUNS[t]['started'][11:19]} · {'Mock' if RUNS[t]['mock'] else 'Live'} · {RUNS[t]['meta']['url']}", t)
                for t in (history or []) if t in RUNS]
     return (run, *cards, gr.update(value=table), "Select a scenario row to inspect its details.",
             run_summary_markdown(run), gr.update(choices=choices, value=thread_id))
@@ -1046,7 +1046,7 @@ def build_ui() -> gr.Blocks:
 
                                 progress = gr.HTML(render_progress())
 
-                                gr.Markdown("Sandbox runs use simulated agents and a simulated browser. Live runs use the model selected in Settings and stop with a clear message at any stage that is not implemented yet.", elem_classes="muted")
+                                gr.Markdown("Mock-mode runs use simulated agents and a simulated browser. Live runs use the model selected in Settings and stop with a clear message at any stage that is not implemented yet.", elem_classes="muted")
 
                 with gr.Column(visible=False) as results_page:
 
@@ -1100,7 +1100,7 @@ def build_ui() -> gr.Blocks:
 
                 with gr.Column(visible=False) as settings_page:
 
-                    gr.HTML("<div class='page-head'><h1>Settings</h1><p>Configure appearance, sandbox behavior, and your LLM connection.</p></div>")
+                    gr.HTML("<div class='page-head'><h1>Settings</h1><p>Configure appearance, mock-mode behavior, and your LLM connection.</p></div>")
 
                     with gr.Group(elem_classes="card"):
 
@@ -1110,15 +1110,15 @@ def build_ui() -> gr.Blocks:
 
                     with gr.Group(elem_classes="card"):
 
-                        gr.HTML("<div class='card-title'>Execution mode</div><p class='muted'>Sandbox runs the real LangGraph workflow with simulated agents, browser and fixes (clearly labeled). Turn it off for live mode, which uses your LLM settings and never falls back to mocks.</p>")
+                        gr.HTML("<div class='card-title'>Execution mode</div><p class='muted'>Mock mode runs the real LangGraph workflow with simulated agents (no real LLM or external calls), browser and fixes (clearly labeled). Turn it off for live mode, which uses your LLM settings and never falls back to mocks.</p>")
 
-                        use_sandbox = gr.Checkbox(value=True, label="Use sandbox")
+                        use_mock = gr.Checkbox(value=True, label="Use mock mode (no real LLM)")
                         
 
                         mock_outcome = gr.Radio(
                                 choices=["PASS", "FAIL"],
                                 value="PASS",
-                                label="Sandbox execution outcome",
+                                label="Mock execution outcome",
                             )
 
                         mock_risky = gr.Checkbox(
@@ -1126,14 +1126,14 @@ def build_ui() -> gr.Blocks:
                                 label="Simulate risky fix",
                             )
 
-                        mock_fixes = gr.Slider(1, 3, value=1, step=1, label="Sandbox: fixes needed before the rerun passes",
+                        mock_fixes = gr.Slider(1, 3, value=1, step=1, label="Mock mode: fixes needed before the rerun passes",
                                                info="Only applies when the outcome is FAIL. 1-2 heal successfully; 3 exhausts the 2-attempt limit and ends FAIL.")
 
                         show_progress = gr.Checkbox(value=True, label="Show execution progress")
 
                     with gr.Group(elem_classes="card"):
 
-                        gr.HTML("<div class='card-title'>LLM configuration</div><p class='muted'>Used by live mode only. Credentials are validated with a real provider call, kept for this UI session only, and never shown in reports, exports or messages. Sandbox runs do not call any provider.</p>")
+                        gr.HTML("<div class='card-title'>LLM configuration</div><p class='muted'>Used by live mode only. Credentials are validated with a real provider call, kept for this UI session only, and never shown in reports, exports or messages. Mock-mode runs do not call any provider.</p>")
 
                         llm_provider = gr.Dropdown(["Groq", "Gemini", "OpenRouter", "Ollama"], value="OpenRouter", label="Provider")
 
@@ -1153,7 +1153,7 @@ def build_ui() -> gr.Blocks:
 
         settings_theme.change(set_theme, inputs=settings_theme, outputs=[theme_style, theme_state])
 
-        use_sandbox.change(session_mode_label, inputs=use_sandbox, outputs=session_mode)
+        use_mock.change(session_mode_label, inputs=use_mock, outputs=session_mode)
 
         show_progress.change(progress_visibility, inputs=show_progress, outputs=[progress_panel, layout_style])
 
@@ -1167,7 +1167,7 @@ def build_ui() -> gr.Blocks:
 
         start.click(
             start_graph_workflow,
-            inputs=[url, requirements, browser, mode, maximum, timeout, authorization, use_sandbox,
+            inputs=[url, requirements, browser, mode, maximum, timeout, authorization, use_mock,
                     mock_outcome, mock_risky, mock_fixes, llm_state, run_history],
             outputs=run_outputs,
         ).then(refresh_results, inputs=[workflow_session, run_history], outputs=results_outputs)

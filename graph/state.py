@@ -34,8 +34,15 @@ class TestRunState(TypedDict):
     terminal_status: str | None          # "PASS" | "FAIL" | "BLOCKED" | "ERROR" | None
     errors: list[str]                    # node crash messages; report still runs
     report_path: str | None             # path to the rendered report file
-    sandbox_mode: bool                   # stop call llm but use static data
+    mock_mode: bool                      # True = mocked agents/execution, no real LLM or external calls
     mock_fix_applied: bool
     mock_execution_outcome: str
     mock_risky: bool
-    mock_fixes_needed: int               # sandbox only: healing fixes needed before the simulated rerun passes
+    mock_fixes_needed: int               # mock mode only: healing fixes needed before the simulated rerun passes
+
+
+def is_mock_mode(state) -> bool:
+    """True when the run uses mocked services. Honours the legacy `sandbox_mode` key if `mock_mode` is absent."""
+    if "mock_mode" in state:
+        return bool(state["mock_mode"])
+    return bool(state.get("sandbox_mode", False))
