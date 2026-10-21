@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from agents.codegen import _sid_from_name, generatable_scenarios, spec_file_name
+from llm.errors import redact
 
 if TYPE_CHECKING:  # graph/state.py is owned by P5; keep this module importable without it
     from graph.state import TestRunState  # noqa: F401
@@ -203,20 +204,23 @@ def validate_spec_file(file_path: str) -> tuple[bool, list[str]]:
 
 
 def validate_all(state: Mapping[str, Any]) -> dict[str, Any]:
-    """LangGraph node. Returns a partial state update."""
+    """LangGraph node. Returns a partial state update and never raises."""
     files = list(state.get("generated_test_files") or [])
     retries = state.get("generation_retry_count", 0)
-    missing = missing_spec_issues(state.get("test_plan"), files)
-    if not files:
-        errors = [i.format() for i in missing] or ["[no-files] no generated test files to validate"]
-        return {"validation_status": "invalid",
-                "validation_errors": errors[:MAX_REPORTED_ISSUES],
-                "generation_retry_count": retries + 1}
     try:
+        missing = missing_spec_issues(state.get("test_plan"), files)
+        if not files:
+            errors = [i.format() for i in missing] or ["[no-files] no generated test files to validate"]
+            return {"validation_status": "invalid",
+                    "validation_errors": errors[:MAX_REPORTED_ISSUES],
+                    "generation_retry_count": retries + 1}
         issues = [*missing, *validate_files(files)]
-    except ToolchainError as exc:
+    except ToolchainError as exc:  # tooling is broken: not the generated code's fault, so no retry
         return {"validation_status": "error",
-                "errors": [*state.get("errors", []), f"validator: {exc}"]}
+                "errors": [*state.get("errors", []), f"validator: {redact(str(exc))}"]}
+    except Exception as exc:  # node invariant: catch into state.errors, the report still runs
+        return {"validation_status": "error",
+                "errors": [*state.get("errors", []), f"validator: {redact(str(exc))}"]}
     if not issues:
         return {"validation_status": "valid", "validation_errors": []}
     return {"validation_status": "invalid",
