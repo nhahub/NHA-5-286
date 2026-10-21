@@ -35,3 +35,9 @@ build/
 Thumbs.db
 .coverage
 /htmlcov/
+# Generated Playwright reports (project root)
+/results.json
+/html-report/
+
+# Temporary pytest directories
+/.pytest_tmp_*/

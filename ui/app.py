@@ -1014,7 +1014,7 @@ def build_ui() -> gr.Blocks:
                                 start = gr.Button("Start Testing", variant="primary", size="lg", elem_id="start-testing")
 
                                 request_status = gr.Markdown()
-                                
+
 
                                 workflow_session = gr.State(None)
 
@@ -1112,8 +1112,13 @@ def build_ui() -> gr.Blocks:
 
                         gr.HTML("<div class='card-title'>Execution mode</div><p class='muted'>Mock mode runs the real LangGraph workflow with simulated agents (no real LLM or external calls), browser and fixes (clearly labeled). Turn it off for live mode, which uses your LLM settings and never falls back to mocks.</p>")
 
+<<<<<<< HEAD
                         use_mock = gr.Checkbox(value=True, label="Use mock mode (no real LLM)")
                         
+=======
+                        use_sandbox = gr.Checkbox(value=True, label="Use sandbox")
+
+>>>>>>> a87a7f1ac47f9d2ffdc6062858ef5bea99dec226
 
                         mock_outcome = gr.Radio(
                                 choices=["PASS", "FAIL"],
@@ -1159,7 +1164,7 @@ def build_ui() -> gr.Blocks:
 
         save_llm_btn.click(save_llm_settings, inputs=[llm_provider, llm_model, llm_api_key], outputs=[llm_status, llm_state])
 
-       
+
         results_outputs = [run_state, metric_total, metric_pass, metric_fail, metric_skip, metric_time, metric_heal,
                            scenarios_table, scenario_info, run_summary, run_picker]
 
