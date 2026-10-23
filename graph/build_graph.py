@@ -63,13 +63,13 @@ def build_graph():
     graph.add_edge("codegen", "validate")
 
     graph.add_conditional_edges(
-        "validate",
-        route_after_validate,
-        {
-            "execute": "execute",
-            "report": "report",
-        },
-    )
+    "validate",
+    route_after_validate,
+    {
+        "execute": "execute",
+        "codegen": "codegen",
+        "report": "report",
+    })
 
     graph.add_conditional_edges(
         "execute",
@@ -119,16 +119,5 @@ def build_graph():
     graph.add_edge("report", END)
 
     return graph.compile(
-        checkpointer=InMemorySaver()
+    checkpointer=InMemorySaver()
     )
-
-
-# def build_graph() -> CompiledStateGraph:
-#     -> Creates StateGraph(TestRunState)
-#     -> Adds nodes: intake, planner, codegen, validate, human_code_review, execute,
-#        analyze, fix_proposal, apply_fix, report
-#     -> Sets entry point to "intake"
-#     -> Adds conditional edges using routing functions from routing.py
-#     -> Sets "report" as the terminal node (all paths end here)
-#     -> Calls graph.compile() and returns the compiled graph
-#     -> The graph guarantees: every path ends at report, including crashes (see spec §4 invariants)

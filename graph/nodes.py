@@ -1,28 +1,57 @@
 """
-Purpose: Thin LangGraph node wrappers that delegate to service and agent functions; all exception catching goes here.
+Purpose: Thin LangGraph node wrappers.
+
 Reads: TestRunState
-Writes: TestRunState
-Must not: perform routing decisions (routing lives in routing.py) or contain agent logic
+Writes: Partial TestRunState updates
+
+Must not:
+- Perform routing decisions.
+- Contain agent logic.
+- Bypass Human Fix Approval.
 """
 
-
 from uuid import uuid4
+
 from langchain_core.runnables import RunnableConfig
+
 from agents.codegen import run_codegen
+<<<<<<< HEAD
 from graph.state import TestRunState, is_mock_mode
  # Live mode: use the model the user selected in Settings. Credentials come from the
  # per-run registry (never from graph state) and there is no fallback to the mock backend.
+=======
+from agents.fix_proposal import (
+    read_failed_spec_code,
+    run_fix_proposal,
+)
+
+from graph.state import TestRunState
+
+>>>>>>> a87a7f1ac47f9d2ffdc6062858ef5bea99dec226
 from llm.client import CodegenLLMBackend
 from llm.settings import model_factory_for
+
+from llm.errors import (
+    LLMUnavailableError,
+    BudgetExceededError,
+    LLM_FATAL_TAG,
+    redact,
+)
+
 from execution.mock_runner import mock_run_execute
-from analysis.mock_failure import mock_propose_fix
-from analysis.mock_failure import mock_analyze
+
+from analysis.mock_failure import (
+    mock_analyze,
+    mock_propose_fix,
+)
+
 from healing.mock_fix_approval import mock_fix_approval_node
 from healing.mock_apply_fix import mock_apply_fix
-from agents.fix_proposal import (read_failed_spec_code,run_fix_proposal)
-from llm.errors import ( LLMUnavailableError, BudgetExceededError, LLM_FATAL_TAG,redact)
 
 
+# =========================================================
+# 1. INTAKE
+# =========================================================
 
 def intake_node(state: TestRunState) -> dict:
     request = state.get("test_request") or {}
@@ -34,7 +63,7 @@ def intake_node(state: TestRunState) -> dict:
         return {
             "terminal_status": "BLOCKED",
             "errors": [
-                *state.get("errors", []),
+                *(state.get("errors") or []),
                 "URL and requirements are required.",
             ],
         }
@@ -42,9 +71,13 @@ def intake_node(state: TestRunState) -> dict:
     return {
         "run_id": state.get("run_id") or str(uuid4()),
         "target_url": url,
-        "errors": state.get("errors", []),
+        "errors": state.get("errors") or [],
     }
 
+
+# =========================================================
+# 2. PLANNER
+# =========================================================
 
 def planner_node(state: TestRunState) -> dict:
     from agents.planner import generate_plan
@@ -54,33 +87,72 @@ def planner_node(state: TestRunState) -> dict:
         mock_mode=is_mock_mode(state),
     )
 
-    return {"test_plan": scenarios}
+    return {
+        "test_plan": scenarios,
+    }
 
 
+<<<<<<< HEAD
 def codegen_node(state: TestRunState, config: RunnableConfig | None = None) -> dict:
     if is_mock_mode(state):
+=======
+# =========================================================
+# 3. CODEGEN
+# =========================================================
+
+def codegen_node(
+    state: TestRunState,
+    config: RunnableConfig | None = None,
+) -> dict:
+
+    # Sandbox mode
+    if state.get("sandbox_mode", False):
+>>>>>>> a87a7f1ac47f9d2ffdc6062858ef5bea99dec226
         from llm.mock_codegen_backend import MockCodegenBackend
 
         return run_codegen(
             state,
             backend=MockCodegenBackend(),
         )
-        
+
+    # Real LLM mode
     request = state.get("test_request") or {}
+
     model = request.get("codegen_model")
+
     if not model:
-        raise ValueError("No codegen model selected; configure one in Settings.")
-    thread_id = ((config or {}).get("configurable") or {}).get("thread_id")
+        raise ValueError(
+            "No codegen model selected; configure one in Settings."
+        )
+
+    thread_id = (
+        ((config or {}).get("configurable") or {})
+        .get("thread_id")
+    )
+
     backend = CodegenLLMBackend(
         model,
         request.get("fallback_model"),
         model_factory=model_factory_for(thread_id),
     )
-    return run_codegen(state, backend=backend)
 
+    return run_codegen(
+        state,
+        backend=backend,
+    )
+
+
+# =========================================================
+# 4. VALIDATE
+# =========================================================
 
 def validate_node(state: TestRunState) -> dict:
+<<<<<<< HEAD
     if is_mock_mode(state):
+=======
+
+    if state.get("sandbox_mode", False):
+>>>>>>> a87a7f1ac47f9d2ffdc6062858ef5bea99dec226
         return {
             "validation_status": "valid",
             "validation_errors": [],
@@ -91,8 +163,17 @@ def validate_node(state: TestRunState) -> dict:
     return validate_all(state)
 
 
+# =========================================================
+# 5. EXECUTE
+# =========================================================
+
 def execute_node(state: TestRunState) -> dict:
+<<<<<<< HEAD
     if is_mock_mode(state):
+=======
+
+    if state.get("sandbox_mode", False):
+>>>>>>> a87a7f1ac47f9d2ffdc6062858ef5bea99dec226
         return mock_run_execute(state)
 
     raise NotImplementedError(
@@ -100,8 +181,17 @@ def execute_node(state: TestRunState) -> dict:
     )
 
 
+# =========================================================
+# 6. FAILURE ANALYZER
+# =========================================================
+
 def analyze_node(state: TestRunState) -> dict:
+<<<<<<< HEAD
     if is_mock_mode(state):
+=======
+
+    if state.get("sandbox_mode", False):
+>>>>>>> a87a7f1ac47f9d2ffdc6062858ef5bea99dec226
         return mock_analyze(state)
 
     raise NotImplementedError(
@@ -109,19 +199,28 @@ def analyze_node(state: TestRunState) -> dict:
     )
 
 
+# =========================================================
+# 7. FIX PROPOSAL
+# =========================================================
 
 def fix_proposal_node(
     state: TestRunState,
     config: RunnableConfig | None = None,
 ) -> dict:
 
+<<<<<<< HEAD
     # Keep the existing mock-mode behavior
     if is_mock_mode(state):
+=======
+    # Preserve Sandbox behavior
+    if state.get("sandbox_mode", False):
+>>>>>>> a87a7f1ac47f9d2ffdc6062858ef5bea99dec226
         return mock_propose_fix(state)
 
     try:
-        # 1. Get the selected model
+        # Selected model from Gradio Settings
         request = state.get("test_request") or {}
+
         model = request.get("codegen_model")
 
         if not model:
@@ -129,7 +228,7 @@ def fix_proposal_node(
                 "No model selected for Fix Proposal."
             )
 
-        # 2. Get the current LangGraph thread
+        # Get the current LangGraph thread
         thread_id = (
             ((config or {}).get("configurable") or {})
             .get("thread_id")
@@ -140,12 +239,12 @@ def fix_proposal_node(
                 "Missing LangGraph thread_id."
             )
 
-        # 3. Read the correct failed test
+        # Read the failed Playwright spec safely
         spec_code, spec_filename = read_failed_spec_code(
             state
         )
 
-        # 4. Run the real Fix Proposal
+        # Call the real Fix Proposal LLM
         return run_fix_proposal(
             state,
             spec_code=spec_code,
@@ -154,7 +253,11 @@ def fix_proposal_node(
             model_factory=model_factory_for(thread_id),
         )
 
-    except (LLMUnavailableError, BudgetExceededError) as exc:
+    except (
+        LLMUnavailableError,
+        BudgetExceededError,
+    ) as exc:
+
         return {
             "errors": [
                 *(state.get("errors") or []),
@@ -165,6 +268,7 @@ def fix_proposal_node(
         }
 
     except Exception as exc:
+
         return {
             "errors": [
                 *(state.get("errors") or []),
@@ -174,13 +278,32 @@ def fix_proposal_node(
         }
 
 
+# =========================================================
+# 8. HUMAN FIX APPROVAL
+# =========================================================
 
 def fix_approval_node(state: TestRunState) -> dict:
+    """
+    Uses LangGraph interrupt() to request human approval.
+
+    Despite the helper's name, mock_fix_approval_node
+    implements the actual interrupt/resume mechanism.
+    """
+
     return mock_fix_approval_node(state)
 
 
+# =========================================================
+# 9. APPLY FIX
+# =========================================================
+
 def apply_fix_node(state: TestRunState) -> dict:
+<<<<<<< HEAD
     if is_mock_mode(state):
+=======
+
+    if state.get("sandbox_mode", False):
+>>>>>>> a87a7f1ac47f9d2ffdc6062858ef5bea99dec226
         return mock_apply_fix(state)
 
     raise NotImplementedError(
@@ -188,52 +311,17 @@ def apply_fix_node(state: TestRunState) -> dict:
     )
 
 
+# =========================================================
+# 10. REPORT - P5 INTEGRATION
+# =========================================================
+
 def report_node(state: TestRunState) -> dict:
-    return {
-        "terminal_status": state.get("terminal_status") or "ERROR"
-    }
+    """
+    Generate the final report using P5's implementation.
 
+    The report must not modify test results or apply fixes.
+    """
 
+    from report.exporters import run_report
 
-# def node_intake(state: TestRunState) -> TestRunState:
-#     -> Delegates to intake.url_resolver, intake.safety, intake.model_resolver
-#     -> Catches all exceptions into state["errors"]
-
-# def node_planner(state: TestRunState) -> TestRunState:
-#     -> Delegates to agents.planner.run_planner
-#     -> Catches all exceptions into state["errors"]
-
-# def node_codegen(state: TestRunState) -> TestRunState:
-#     -> Delegates to agents.codegen.run_codegen
-#     -> Catches all exceptions into state["errors"]
-
-# def node_validate(state: TestRunState) -> TestRunState:
-#     -> Delegates to validation.validator.validate_all
-#     -> Catches all exceptions into state["errors"]
-
-# def node_human_code_review(state: TestRunState) -> TestRunState:
-#     -> Delegates to healing.human_review.present_for_review
-#     -> Catches all exceptions into state["errors"]
-
-# def node_execute(state: TestRunState) -> TestRunState:
-#     -> Delegates to execution.runner.run_execute
-#     -> Catches all exceptions into state["errors"]
-
-# def node_analyze(state: TestRunState) -> TestRunState:
-#     -> Delegates to agents.analyzer.run_analyzer
-#     -> Catches all exceptions into state["errors"]
-
-# def node_fix_proposal(state: TestRunState) -> TestRunState:
-#     -> Delegates to agents.fix_proposal.run_fix_proposal
-#     -> Catches all exceptions into state["errors"]
-
-# def node_apply_fix(state: TestRunState) -> TestRunState:
-#     -> Delegates to healing.apply_fix.run_apply_fix
-#     -> Catches all exceptions into state["errors"]
-
-# def node_report(state: TestRunState) -> TestRunState:
-#     -> Delegates to report.model.build_report_model and report.exporters
-#     -> Always runs, even when state["errors"] is non-empty
-#     -> Catches all exceptions; if report itself crashes, writes an emergency plain-text report
-
-
+    return run_report(state)

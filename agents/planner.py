@@ -64,4 +64,3 @@ def mock_generate_plan(request):
 #     -> Calls build_planner_agent, invokes it, validates output as list[Scenario]
 #     -> One retry with validation error on structured-output failure
 #     -> Writes test_plan; records model used in models_used["planner"]
-
