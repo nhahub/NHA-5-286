@@ -1,18 +1,24 @@
 """
-Purpose: Error types and helpers shared by llm/client.py and agents/codegen.py.
-         Kept in its own module so the two files never import each other in a circle.
-Reads: environment (only to find secret values that must be hidden)
+Purpose: Shared LLM error types and redaction helpers
+used by LLM clients, agents, reports, and orchestration.
+
+Kept in a separate module to avoid circular imports
+between llm/client.py and agents/codegen.py.
+
+Reads: environment (only to identify secrets for redaction)
 Writes: N/A
-Must not: log or return API key values
+Must not: log or expose API keys
 """
+
 from __future__ import annotations
 
 import os
 import re
 from collections.abc import Iterable
 
-# Prefix of a state.errors entry that means "the LLM layer is down for the whole run".
-# P5's routing turns it into terminal_status = ERROR instead of retrying generation.
+
+# Prefix used to identify fatal LLM errors in state.errors.
+# Routing uses this tag to stop retries and report an ERROR.
 LLM_FATAL_TAG = "llm-fatal"
 
 
@@ -21,29 +27,61 @@ class LLMError(RuntimeError):
 
 
 class LLMUnavailableError(LLMError):
-    """No configured model could be initialised, or every model failed."""
+    """No configured model could be initialized, or every model failed."""
 
 
 class BudgetExceededError(LLMError):
-    """max_tokens_per_run or the cap on agent calls was reached. Never retried or failed over."""
+    """
+    The maximum token budget or agent-call limit was reached.
+
+    This error must not be retried or trigger model fallback.
+    """
 
 
 class OutputParseError(ValueError):
-    """The model reply was not a valid structured result."""
+    """The model response could not be parsed into the required structure."""
 
 
-# Common key shapes: OpenAI/Anthropic "sk-...", Google "AIza...", and "Bearer <token>" headers.
-_SECRET = re.compile(r"(sk-[A-Za-z0-9_\-*.]{4,}|AIza[0-9A-Za-z_\-]{20,}|Bearer\s+\S+)")
+# Common API key patterns:
+# - OpenAI / Anthropic: sk-...
+# - Google: AIza...
+# - Authorization headers: Bearer <token>
+_SECRET = re.compile(
+    r"(sk-[A-Za-z0-9_\-*.]{4,}|"
+    r"AIza[0-9A-Za-z_\-]{20,}|"
+    r"Bearer\s+\S+)"
+)
 
 
 def redact(text: str) -> str:
-    """Hide API keys in a message before it is logged or stored in state.errors."""
+    """
+    Remove API keys from error messages before storing
+    them in state.errors or displaying them in reports.
+    """
+
+    if not text:
+        return ""
+
+    text = str(text)
+
+    # Redact exact API key values from environment variables.
     for name, value in os.environ.items():
         if "API_KEY" in name.upper() and len(value) >= 8:
-            text = text.replace(value, "[redacted]")  # the exact key values from this environment
+            text = text.replace(value, "[redacted]")
+
+    # Redact recognizable secret patterns.
     return _SECRET.sub("[redacted]", text)
 
 
 def has_fatal_llm_error(errors: Iterable[str]) -> bool:
-    """True if any recorded error says the LLM layer failed for the whole run (for P5's routing)."""
-    return any(str(e).startswith(LLM_FATAL_TAG) for e in errors)
+    """
+    Check whether state.errors contains a fatal LLM error.
+
+    Used by LangGraph routing to stop the workflow
+    instead of retrying an unavailable LLM.
+    """
+
+    return any(
+        str(error).startswith(LLM_FATAL_TAG)
+        for error in errors
+    )

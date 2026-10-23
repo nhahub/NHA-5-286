@@ -229,7 +229,7 @@ model_factory: Callable[[str], BaseChatModel]) -> dict:
         model_factory=model_factory,
     )
 
-    
+
     # 3. Generate a fix with at most one retry
     original_context = context
 
@@ -418,6 +418,3 @@ def read_failed_spec_code(
 #     -> Calls build_fix_proposal_agent; validates output as FixProposal with one retry
 #     -> Forces risky=True when failure_analysis.subtype == "ASSERTION" (assertion expected-value changes are always risky)
 #     -> Writes fix_proposal; records model in models_used["fix_proposal"]
-
-
-
