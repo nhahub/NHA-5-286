@@ -41,3 +41,4 @@ Thumbs.db
 
 # Temporary pytest directories
 /.pytest_tmp_*/
+smoke_codegen.py
