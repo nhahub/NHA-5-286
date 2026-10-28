@@ -33,6 +33,7 @@ from llm.errors import (
 )
 
 from execution.mock_runner import mock_run_execute
+from execution.runner import run_execute
 
 from analysis.mock_failure import (
     mock_analyze,
@@ -152,14 +153,12 @@ def validate_node(state: TestRunState) -> dict:
 # 5. EXECUTE
 # =========================================================
 
+
 def execute_node(state: TestRunState) -> dict:
 
     if state.get("sandbox_mode", False):
         return mock_run_execute(state)
-
-    raise NotImplementedError(
-        "Real execution runner is not connected yet."
-    )
+    return run_execute(state)
 
 
 # =========================================================
