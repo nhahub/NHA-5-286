@@ -35,6 +35,9 @@ from llm.errors import (
 from execution.mock_runner import mock_run_execute
 from execution.runner import run_execute
 
+
+from agents.analyzer import run_analyzer
+
 from analysis.mock_failure import (
     mock_analyze,
     mock_propose_fix,
@@ -165,14 +168,67 @@ def execute_node(state: TestRunState) -> dict:
 # 6. FAILURE ANALYZER
 # =========================================================
 
-def analyze_node(state: TestRunState) -> dict:
+def analyze_node(
+    state: TestRunState,
+    config: RunnableConfig | None = None,
+) -> dict:
 
+    # Preserve Sandbox behavior
     if state.get("sandbox_mode", False):
         return mock_analyze(state)
 
-    raise NotImplementedError(
-        "Real Analyzer is not connected yet."
-    )
+    try:
+        # Selected model from Gradio Settings
+        request = state.get("test_request") or {}
+
+        model = request.get("codegen_model")
+
+        if not model:
+            raise ValueError(
+                "No model selected for Failure Analyzer."
+            )
+
+        # Get the current LangGraph thread
+        thread_id = (
+            ((config or {}).get("configurable") or {})
+            .get("thread_id")
+        )
+
+        if not thread_id:
+            raise ValueError(
+                "Missing LangGraph thread_id."
+            )
+
+        # Call the real Failure Analyzer LLM
+        return run_analyzer(
+            state,
+            model=model,
+            model_factory=model_factory_for(thread_id),
+        )
+
+    except (
+        LLMUnavailableError,
+        BudgetExceededError,
+    ) as exc:
+
+        return {
+            "errors": [
+                *(state.get("errors") or []),
+                f"{LLM_FATAL_TAG}[analyzer]: "
+                f"{redact(str(exc))}",
+            ],
+            "terminal_status": "ERROR",
+        }
+
+    except Exception as exc:
+
+        return {
+            "errors": [
+                *(state.get("errors") or []),
+                f"analyzer: {redact(str(exc))}",
+            ],
+            "terminal_status": "ERROR",
+        }
 
 
 # =========================================================
