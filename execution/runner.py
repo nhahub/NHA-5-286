@@ -27,7 +27,7 @@ import os
 import subprocess
 from pathlib import Path
 from typing import Any
-
+from analysis.evidence import parse_playwright_results, normalise_evidence
 from contracts.evidence import ConsoleEntry, Evidence, NetworkEntry
 from graph.state import TestRunState
 
@@ -164,146 +164,17 @@ def run_playwright_tests(
     return results
 
 
+
 def collect_evidence(
     results: dict,
     run_dir: str,
 ) -> list[Evidence]:
     """Convert Playwright JSON results into normalized Evidence objects."""
-    run_path = Path(run_dir).resolve()
-    evidence_items: list[Evidence] = []
+    return [
+        normalise_evidence(result, run_dir=run_dir)
+        for result in parse_playwright_results(results)
+    ]
 
-    def visit_suite(suite: dict) -> None:
-        for spec in suite.get("specs", []):
-            if not isinstance(spec, dict):
-                continue
-
-            scenario_name = (
-                spec.get("title")
-                or suite.get("title")
-                or "Unknown scenario"
-            )
-
-            for test in spec.get("tests", []):
-                if not isinstance(test, dict):
-                    continue
-
-                for result in test.get("results", []):
-                    if not isinstance(result, dict):
-                        continue
-
-                    attachments = result.get("attachments", [])
-                    if not isinstance(attachments, list):
-                        attachments = []
-
-                    error_parts: list[str] = []
-                    for error in result.get("errors", []):
-                        if isinstance(error, dict):
-                            message = error.get("message")
-                            if isinstance(message, str) and message:
-                                error_parts.append(message)
-
-                    error_message = "\n".join(error_parts) or None
-
-                    screenshot_path = None
-                    trace_path = None
-                    console_logs: list[ConsoleEntry] = []
-                    network_errors: list[NetworkEntry] = []
-                    final_url = None
-
-                    for attachment in attachments:
-                        if not isinstance(attachment, dict):
-                            continue
-
-                        name = str(attachment.get("name", ""))
-                        raw_path = attachment.get("path")
-
-                        if isinstance(raw_path, str) and raw_path:
-                            attachment_path = Path(raw_path)
-                            if not attachment_path.is_absolute():
-                                attachment_path = run_path / attachment_path
-                            saved_path = str(attachment_path.resolve())
-                        else:
-                            saved_path = None
-
-                        if name == "screenshot" or (
-                            name.lower().endswith((".png", ".jpg", ".jpeg"))
-                            and "screenshot" in name.lower()
-                        ):
-                            screenshot_path = saved_path
-
-                        elif name == "trace" or name.endswith(".zip"):
-                            if "trace" in name.lower():
-                                trace_path = saved_path
-
-                        elif name == "console.json":
-                            content = _read_attachment(attachment, run_path)
-                            if content:
-                                try:
-                                    entries = json.loads(content)
-                                    if isinstance(entries, list):
-                                        for entry in entries:
-                                            if isinstance(entry, dict):
-                                                try:
-                                                    console_logs.append(
-                                                        ConsoleEntry.model_validate(entry)
-                                                    )
-                                                except Exception:
-                                                    continue
-                                except json.JSONDecodeError:
-                                    pass
-
-                        elif name == "network.json":
-                            content = _read_attachment(attachment, run_path)
-                            if content:
-                                try:
-                                    entries = json.loads(content)
-                                    if isinstance(entries, list):
-                                        for entry in entries:
-                                            if isinstance(entry, dict):
-                                                try:
-                                                    network_errors.append(
-                                                        NetworkEntry.model_validate(entry)
-                                                    )
-                                                except Exception:
-                                                    continue
-                                except json.JSONDecodeError:
-                                    pass
-
-                        elif name == "final-url.txt":
-                            content = _read_attachment(attachment, run_path)
-                            if content:
-                                final_url = content.strip() or None
-
-                    if not error_message:
-                        error_message = result.get("error")
-
-                    evidence_items.append(
-                        Evidence(
-                            scenario_name=str(scenario_name),
-                            error_message=(
-                                error_message
-                                if isinstance(error_message, str)
-                                else None
-                            ),
-                            failed_step=None,
-                            spec_code=None,
-                            screenshot_path=screenshot_path,
-                            trace_path=trace_path,
-                            console_log=console_logs,
-                            network_errors=network_errors,
-                            final_url=final_url,
-                        )
-                    )
-
-        for child in suite.get("suites", []):
-            if isinstance(child, dict):
-                visit_suite(child)
-
-    for suite in results.get("suites", []):
-        if isinstance(suite, dict):
-            visit_suite(suite)
-
-    return evidence_items
 
 
 def run_execute(state: TestRunState) -> dict:

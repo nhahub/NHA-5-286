@@ -142,4 +142,45 @@ def model_factory_for(thread_id: str | None) -> Callable[[str], BaseChatModel]:
                                f"('{settings.model_string}')")
         return build_model(settings.provider, settings.model, settings.api_key)
 
+
+    factory.gemini_interactions_client = (
+        lambda model_string: gemini_interactions_client_for(
+            thread_id,
+            model_string,
+        )
+    )
+
     return factory
+
+
+
+
+
+def gemini_interactions_client_for(
+    thread_id: str | None,
+    model_string: str,
+):
+    """Create a Gemini Interactions client using this run's registered credentials."""
+
+    from google import genai
+
+    with _LOCK:
+        settings = _REGISTRY.get(thread_id or "")
+
+    if settings is None:
+        raise RuntimeError("no LLM credentials registered for this run")
+
+    if settings.provider != "Gemini":
+        raise RuntimeError("Gemini Interactions requires the Gemini provider")
+
+    if model_string != settings.model_string:
+        raise RuntimeError(
+            "model does not match the model selected in Settings"
+        )
+
+    key = effective_key(settings.provider, settings.api_key)
+
+    if not key:
+        raise RuntimeError("Gemini API key is not configured")
+
+    return genai.Client(api_key=key)
