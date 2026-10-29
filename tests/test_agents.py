@@ -288,3 +288,105 @@ def test_llm_down_stops_codegen_and_is_tagged_fatal(tmp_path: Path) -> None:
 
 # def test_assertion_subtype_forces_risky_true() -> None:
 #     -> When failure_analysis.subtype == "ASSERTION", fix_proposal.risky must be True
+
+
+def test_analyzer_to_fix_proposal_handoff(monkeypatch) -> None:
+    import agents.analyzer as analyzer_module
+    import agents.fix_proposal as fix_module
+
+    from agents.analyzer import RawFailureAnalysis, run_analyzer
+    from agents.fix_proposal import run_fix_proposal
+
+    state = {
+        "run_id": "handoff-test",
+        "execution_result": {"status": "FAILED"},
+        "execution_evidence": [
+            {
+                "scenario_name": "Login",
+                "error_message": "Expected button to be visible",
+                "failed_step": "Click login button",
+            }
+        ],
+        "test_plan": [{"name": "Login"}],
+        "generated_test_files": [],
+        "test_request": {},
+        "models_used": {},
+    }
+
+    # Mock the analyzer agent construction and response.
+    monkeypatch.setattr(
+        analyzer_module,
+        "build_analyzer_agent",
+        lambda **kwargs: object(),
+    )
+
+    monkeypatch.setattr(
+        analyzer_module,
+        "_invoke_analyzer",
+        lambda **kwargs: RawFailureAnalysis(
+            failure_type="Test",
+            root_cause="The login button selector is incorrect.",
+            evidence="The expected button was not visible.",
+            application_bug=False,
+            fix_required=True,
+            subtype="SELECTOR",
+            confidence="high",
+            suggested_fix="Update the button selector.",
+        ),
+    )
+
+    analysis_result = run_analyzer(
+        state,
+        model="openai:test-model",
+        model_factory=lambda _: None,
+    )
+
+    assert analysis_result["failure_type"] == "Test"
+    assert analysis_result["failure_analysis"]["subtype"] == "SELECTOR"
+
+    # Pass the analyzer output to the fix proposal agent.
+    handoff_state = {**state, **analysis_result}
+
+    original_code = 'const button = page.getByText("Old");\n'
+    spec_filename = "s1-login.spec.ts"
+
+    patch = (
+        f"--- a/{spec_filename}\n"
+        f"+++ b/{spec_filename}\n"
+        "@@ -1 +1 @@\n"
+        '-const button = page.getByText("Old");\n'
+        '+const button = page.getByText("Login");\n'
+    )
+
+    class FakeAgent:
+        def invoke(self, inputs):
+            assert "failure_context" in inputs
+            assert "SELECTOR" in inputs["failure_context"]
+
+            return {
+                "patch_diff": patch,
+                "reason": "Update the incorrect login button selector.",
+                "risky": False,
+            }
+
+    # Mock only agent construction; keep patch validation real.
+    monkeypatch.setattr(
+        fix_module,
+        "build_fix_proposal_agent",
+        lambda **kwargs: FakeAgent(),
+    )
+
+    proposal_result = run_fix_proposal(
+        handoff_state,
+        spec_code=original_code,
+        spec_filename=spec_filename,
+        model="openai:test-model",
+        model_factory=lambda _: None,
+    )
+
+    assert proposal_result["fix_proposal"]["patch_diff"] == patch
+    assert proposal_result["fix_proposal"]["reason"]
+    assert (
+        proposal_result["models_used"]["fix_proposal"]
+        == "openai:test-model"
+    )
