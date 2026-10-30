@@ -1184,7 +1184,7 @@ def build_ui() -> gr.Blocks:
                     gr.HTML(D.page_head("Settings", "Configure appearance, mock-mode behaviour, and your LLM connection.", "settings"))
                     with gr.Group(elem_classes="card"):
                         gr.HTML("<div class='card-title'>Appearance</div><p class='muted'>Choose a theme for this active UI session.</p>")
-                        settings_theme = gr.Radio(["Dark", "Blue", "Light"], value="Dark", label="Dashboard theme")
+                        settings_theme = gr.Radio(["Dark", "Violet", "Light"], value="Dark", label="Dashboard theme")
                     with gr.Group(elem_classes="card"):
                         gr.HTML("<div class='card-title'>Execution mode</div><p class='muted'>Mock mode runs the real LangGraph workflow with simulated agents (no real LLM or external calls), browser and fixes (clearly labeled). Turn it off for live mode, which uses your LLM settings and never falls back to mocks.</p>")
                         use_mock = gr.Checkbox(value=True, label="Use mock mode (no real LLM)")

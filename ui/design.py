@@ -12,15 +12,16 @@ from pathlib import Path
 esc = html.escape
 
 THEMES = {
-    "Dark": {"bg": "#0a0c11", "surface": "#10141b", "surface2": "#161b24", "text": "#e7eaf0", "muted": "#8a93a6",
-             "line": "#222937", "accent": "#7b8cff", "soft": "#1a2133", "ok": "#34d399", "warn": "#fbbf24",
-             "bad": "#f87171", "info": "#60a5fa", "violet": "#a78bfa", "glow": "rgba(123,140,255,.16)"},
-    "Blue": {"bg": "#0a1224", "surface": "#0f1b33", "surface2": "#132341", "text": "#e8efff", "muted": "#8fa1c4",
-             "line": "#20365a", "accent": "#5b9bff", "soft": "#17294b", "ok": "#34d399", "warn": "#fbbf24",
-             "bad": "#fb7185", "info": "#38bdf8", "violet": "#a78bfa", "glow": "rgba(91,155,255,.18)"},
-    "Light": {"bg": "#f5f6fa", "surface": "#ffffff", "surface2": "#f8f9fc", "text": "#101828", "muted": "#667085",
-              "line": "#e3e6ee", "accent": "#4f46e5", "soft": "#eef0ff", "ok": "#059669", "warn": "#b45309",
-              "bad": "#dc2626", "info": "#2563eb", "violet": "#7c3aed", "glow": "rgba(79,70,229,.10)"},
+    # Every neutral is tinted toward the logo purple; "info" (formerly blue) is now the logo lilac.
+    "Dark": {"bg": "#0b0912", "surface": "#120f1c", "surface2": "#191426", "text": "#ede9f7", "muted": "#9a92b3",
+             "line": "#2a2340", "accent": "#a272f0", "soft": "#211a38", "ok": "#34d399", "warn": "#fbbf24",
+             "bad": "#f87171", "info": "#c4a6fa", "violet": "#e0a3f5", "glow": "rgba(162,114,240,.22)"},
+    "Violet": {"bg": "#130b26", "surface": "#1a1033", "surface2": "#21153f", "text": "#f1ebff", "muted": "#a99bd0",
+               "line": "#35265f", "accent": "#b088f5", "soft": "#2a1c4d", "ok": "#34d399", "warn": "#fbbf24",
+               "bad": "#fb7185", "info": "#d8c0fc", "violet": "#f0a8f2", "glow": "rgba(176,136,245,.26)"},
+    "Light": {"bg": "#f7f4fd", "surface": "#ffffff", "surface2": "#faf7ff", "text": "#1a1530", "muted": "#6b6483",
+              "line": "#e7e0f4", "accent": "#7b4fe0", "soft": "#f0e8ff", "ok": "#059669", "warn": "#b45309",
+              "bad": "#dc2626", "info": "#7b4fe0", "violet": "#b03fc9", "glow": "rgba(123,79,224,.16)"},
 }
 
 ICONS = {
@@ -86,7 +87,17 @@ def theme_css(theme: str) -> str:
         f"--table-even-background-fill:{c['surface']};--table-odd-background-fill:{c['surface2']};--table-border-color:{c['line']};"
         f"--table-row-focus:{c['soft']};--button-secondary-background-fill:{c['surface2']};--button-secondary-text-color:{c['text']};"
         f"--button-secondary-border-color:{c['line']};--checkbox-background-color:{c['surface2']};--checkbox-border-color:{c['line']};"
-        f"--neutral-100:{c['soft']};--color-accent:{c['accent']};--slider-color:{c['accent']};--shadow-drop:none;"
+        f"--neutral-100:{c['soft']};--color-accent:{c['accent']};--color-accent-soft:{c['soft']};--slider-color:{c['accent']};--shadow-drop:none;"
+        f"--primary-50:{c['soft']};--primary-100:{c['soft']};--primary-200:{c['info']};--primary-300:{c['info']};--primary-400:{c['accent']};"
+        f"--primary-500:{c['accent']};--primary-600:{c['accent']};--primary-700:{c['accent']};--primary-800:{c['accent']};--primary-900:{c['accent']};"
+        f"--secondary-500:{c['accent']};--secondary-600:{c['accent']};"
+        f"--button-primary-background-fill:{c['accent']};--button-primary-background-fill-hover:{c['accent']};--button-primary-text-color:#fff;"
+        f"--button-primary-border-color:{c['accent']};--button-secondary-background-fill-hover:{c['soft']};--button-secondary-border-color-hover:{c['accent']};"
+        f"--checkbox-background-color-selected:{c['accent']};--checkbox-border-color-selected:{c['accent']};--checkbox-border-color-focus:{c['accent']};"
+        f"--checkbox-border-color-hover:{c['accent']};--checkbox-label-background-fill-selected:{c['soft']};--checkbox-label-border-color-selected:{c['accent']};"
+        f"--input-border-color-focus:{c['accent']};--input-border-color-hover:{c['accent']};--input-shadow-focus:0 0 0 3px {c['glow']};"
+        f"--border-color-accent:{c['accent']};--link-text-color:{c['accent']};--link-text-color-hover:{c['info']};--link-text-color-active:{c['accent']};"
+        f"--loader-color:{c['accent']};--block-label-border-color:{c['line']};--table-row-focus:{c['soft']};--body-text-color-accent:{c['accent']};"
         f"color-scheme:{'light' if theme == 'Light' else 'dark'}"
     )
     selector = "html:root, html body, html body.dark, html .dark, html .gradio-container"
@@ -543,6 +554,27 @@ footer{display:none!important}
 .stack{display:flex;flex-direction:column;gap:14px}
 .tag-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .log{font-family:var(--mono);font-size:12px;line-height:1.7;color:var(--app-muted)}.log b{color:var(--app-text);font-weight:500}
+/* ------- brand colour on every interactive element (logo purple) */
+::selection{background:color-mix(in srgb,var(--app-accent) 35%,transparent);color:inherit}
+:focus-visible{outline:2px solid var(--app-accent)!important;outline-offset:2px!important}
+a,a:visited{color:var(--app-accent)!important}a:hover{color:var(--app-info)!important}
+input[type=checkbox],input[type=radio]{accent-color:var(--app-accent)!important}
+input[type=checkbox]:checked,input[type=radio]:checked{background-color:var(--app-accent)!important;border-color:var(--app-accent)!important}
+input[type=checkbox]:focus,input[type=radio]:focus{box-shadow:0 0 0 3px var(--app-glow)!important}
+input[type=range]{accent-color:var(--app-accent)!important}
+input[type=range]::-webkit-slider-thumb{background:var(--app-accent)!important;border:2px solid var(--app-surface)!important}
+input[type=range]::-moz-range-thumb{background:var(--app-accent)!important}
+input[type=range]::-webkit-slider-runnable-track{background:color-mix(in srgb,var(--app-accent) 28%,var(--app-line))!important}
+.card label.selected,.card label:has(input:checked){border-color:var(--app-accent)!important}
+.card input:hover:not([type=radio]):not([type=checkbox]),.card textarea:hover,.card [role=combobox]:hover{border-color:var(--app-accent)!important}
+button.secondary,.card .secondary-wrap{border-color:color-mix(in srgb,var(--app-accent) 45%,var(--app-line))!important}
+button.lg.secondary,#sidebar-toggle{border-color:color-mix(in srgb,var(--app-accent) 40%,var(--app-line))!important}
+.progress-bar,.progress-level-inner,.generating{background:var(--app-accent)!important;border-color:var(--app-accent)!important}
+.tabs button[role=tab][aria-selected=true]{color:var(--app-accent)!important;border-color:var(--app-accent)!important}
+.tab-container::after,.tab-wrapper .tab-container .selected{background:var(--app-accent)!important}
+.dataframe .selected,[data-testid=dataframe] [aria-selected=true]{outline-color:var(--app-accent)!important}
+#clear-history-btn,#clear-no{background:transparent!important;color:var(--app-accent)!important;border:1px solid var(--app-accent)!important}
+#clear-history-btn:hover,#clear-no:hover{background:var(--app-soft)!important}
 /* ------- gradio controls */
 .card label,.card label span,.card span:not(.badge),.card .prose{color:var(--app-text)!important}
 .card [data-testid=block-info],.card .info{color:var(--app-muted)!important}
