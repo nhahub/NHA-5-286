@@ -106,6 +106,7 @@ def test_toolchain_failure_is_an_error_not_a_retry(monkeypatch: pytest.MonkeyPat
     assert out["errors"] == ["old", "validator: npx not found"]
     assert "generation_retry_count" not in out
 
+
 def test_unexpected_exception_becomes_a_validator_error(monkeypatch: pytest.MonkeyPatch) -> None:
     def boom(files: list[str]) -> list[Issue]:
         raise OSError("disk exploded")
@@ -114,7 +115,7 @@ def test_unexpected_exception_becomes_a_validator_error(monkeypatch: pytest.Monk
     out = validate_all({"generated_test_files": ["a.spec.ts"], "errors": ["old"]})
     assert out["validation_status"] == "error"
     assert out["errors"] == ["old", "validator: disk exploded"]
-    assert "generation_retry_count" not in out  # a broken validator must not consume a retry    
+    assert "generation_retry_count" not in out
 
 
 # ---- integration (real tsc + playwright) --------------------------------------

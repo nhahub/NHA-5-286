@@ -123,3 +123,13 @@ runs/run-20261004-abc123/
 | Report language | English always, even for Arabic requirements |
 | Terminal statuses | `PASS` · `FAIL` · `BLOCKED` · `ERROR` |
 | Failure classes | `Test` (healable) · `Application` · `Environment` · `Infrastructure` |
+
+---
+
+## Dashboard UI (redesigned)
+
+`python main.py --ui` serves a multi-page dashboard at `http://127.0.0.1:7860`: **Overview**, **Create & Run**, **AI Workflow** (live LangGraph graph with branches, heal loop and the human gate), **Results**, **Fix & Approval** (patch diff, two-step confirm, approval history), **Reports**, **Analytics & Monitoring** and **Settings** (theme, mock mode, LLM).
+
+- The UI is still Gradio; the workflow, approval interrupt and mock mode are unchanged.
+- Analytics only uses recorded data: UI runs saved to `runs/ui_history.jsonl` (override with `QC_UI_HISTORY`) and existing `runs/<id>/report.md` files. Empty ranges show empty states.
+- Mock runs are labelled *Mock* everywhere; toggle them off in Analytics.

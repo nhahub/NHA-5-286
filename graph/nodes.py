@@ -19,9 +19,7 @@ from agents.fix_proposal import (
     read_failed_spec_code,
     run_fix_proposal,
 )
-
-from graph.state import TestRunState
-
+from graph.state import TestRunState, is_mock_mode
 from llm.client import CodegenLLMBackend
 from llm.settings import model_factory_for
 
@@ -82,7 +80,7 @@ def planner_node(state: TestRunState) -> dict:
 
     scenarios = generate_plan(
         request=state["test_request"],
-        sandbox_mode=state.get("sandbox_mode", False),
+        mock_mode=is_mock_mode(state),
     )
 
     return {
@@ -98,9 +96,7 @@ def codegen_node(
     state: TestRunState,
     config: RunnableConfig | None = None,
 ) -> dict:
-
-    # Sandbox mode
-    if state.get("sandbox_mode", False):
+    if is_mock_mode(state):
         from llm.mock_codegen_backend import MockCodegenBackend
 
         return run_codegen(
@@ -140,8 +136,7 @@ def codegen_node(
 # =========================================================
 
 def validate_node(state: TestRunState) -> dict:
-
-    if state.get("sandbox_mode", False):
+    if is_mock_mode(state):
         return {
             "validation_status": "valid",
             "validation_errors": [],
@@ -158,8 +153,7 @@ def validate_node(state: TestRunState) -> dict:
 
 
 def execute_node(state: TestRunState) -> dict:
-
-    if state.get("sandbox_mode", False):
+    if is_mock_mode(state):
         return mock_run_execute(state)
     return run_execute(state)
 
@@ -173,8 +167,7 @@ def analyze_node(
     config: RunnableConfig | None = None,
 ) -> dict:
 
-    # Preserve Sandbox behavior
-    if state.get("sandbox_mode", False):
+    if is_mock_mode(state):
         return mock_analyze(state)
 
     try:
@@ -240,8 +233,7 @@ def fix_proposal_node(
     config: RunnableConfig | None = None,
 ) -> dict:
 
-    # Preserve Sandbox behavior
-    if state.get("sandbox_mode", False):
+    if is_mock_mode(state):
         return mock_propose_fix(state)
 
     try:
@@ -325,8 +317,7 @@ def fix_approval_node(state: TestRunState) -> dict:
 # =========================================================
 
 def apply_fix_node(state: TestRunState) -> dict:
-
-    if state.get("sandbox_mode", False):
+    if is_mock_mode(state):
         return mock_apply_fix(state)
 
     raise NotImplementedError(

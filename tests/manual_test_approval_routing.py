@@ -49,7 +49,7 @@ def test_decision(decision: str):
     }
 
     state = {
-        "sandbox_mode": True,
+        "mock_mode": True,
         "run_id": f"run-{decision}",
         "generated_test_files": ["mock.spec.ts"],
         "healing_retry_count": 0,

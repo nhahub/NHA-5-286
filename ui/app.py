@@ -1,4 +1,4 @@
-"""Responsive Gradio 6 dashboard for AI assisted test automation."""
+"""Gradio 6 dashboard for AI assisted test automation (multi-page, themed; backend wiring unchanged)."""
 
 from __future__ import annotations
 import html
@@ -15,6 +15,10 @@ import gradio as gr
 from uuid import uuid4
 from langgraph.types import Command
 from graph.build_graph import build_graph
+from ui import design as D
+from ui import history as H
+from ui import views as V
+from ui.design import CSS, THEMES, theme_css, request_layout_css
 from llm.settings import (
     LLMSettings, check_static, effective_key, register_run_credentials, release_run_credentials, validate_settings,
 )
@@ -26,145 +30,9 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = build_graph()
 
 
-EXPORT_DIR = ROOT / "runs" / "sandbox_reports"
+EXPORT_DIR = ROOT / "runs" / "mock_reports"
 
 
-
-THEMES = {
-
-    "Light": {"bg": "#f3f6fc", "surface": "#ffffff", "surface2": "#f8fafe", "text": "#142641", "muted": "#5a6e8c", "line": "#d3deef", "accent": "#2867d9", "soft": "#e8f0ff"},
-
-    "Blue": {"bg": "#0c1424", "surface": "#14243e", "surface2": "#10213a", "text": "#e8efff", "muted": "#aebfdf", "line": "#315280", "accent": "#5b91ff", "soft": "#1a3157"},
-
-    "Dark": {"bg": "#0d1016", "surface": "#151e2c", "surface2": "#101a29", "text": "#edf1f7", "muted": "#aebbd0", "line": "#33496a", "accent": "#7096ff", "soft": "#202e4e"},
-
-}
-
-
-
-CSS = """
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
-:root {--app-gap:14px;--app-card-pad:20px}
-html,body {margin:0!important; overflow-x:hidden!important}
-/* Gradio adds nested wrappers with their own padding/min-height, which caused extra scrolling. */
-.gradio-container > .main, .gradio-container > .main > .wrap, .gradio-container .contain {
- padding:0!important;min-height:0!important;height:auto!important;gap:0!important}
-.gradio-container .main .wrap, .gradio-container .fillable {padding:0!important}
-.gradio-container .app {padding:0!important;min-height:0!important}
-body,.gradio-container {background:var(--app-bg)!important;color:var(--app-text)!important;font-family:'DM Sans',sans-serif!important}
-.gradio-container {max-width:100%!important;padding:0!important;min-height:100vh!important}
-/* Gradio can vertically center its outer layout; force an ordinary top-aligned document flow. */
-.gradio-container, .gradio-container > .main, .gradio-container > .main > .wrap, .gradio-container .contain,
-.gradio-container .gap, .gradio-container .app, .gradio-container .app-shell {
- align-content:start!important;justify-content:flex-start!important;
-}
-.app-shell {width:100%!important;max-width:none!important;box-sizing:border-box!important;padding:20px 20px 20px!important;
- min-height:0!important;height:auto!important;margin:0!important;gap:0!important;align-self:start!important;
- background:var(--app-bg)!important}
-#user-request-page {margin:0!important;padding:0!important;min-height:0!important;gap:0!important;justify-content:flex-start!important}
-#request-layout {margin:0!important;padding:0!important;gap:14px!important;align-items:start!important;
- display:grid!important;grid-template-columns:var(--request-layout-columns,minmax(0,7fr) minmax(0,3fr))!important}
-#request-card-column,#progress-card-column {margin:0!important;padding:0!important;min-width:0!important;
- width:auto!important;max-width:none!important;flex:none!important;gap:0!important;align-self:start!important}
-.card {background:var(--app-surface)!important;color:var(--app-text)!important;
- border:1px solid var(--app-line)!important;border-radius:16px!important;padding:20px!important;
- box-shadow:0 2px 10px rgba(12,30,55,.05)!important;margin:0 0 14px!important;min-width:0!important;overflow:visible!important}
-#request-layout .card {margin:0!important}
-/* gr.Group nests a second .card wrapper; style only the outer one. */
-.card .card {border:0!important;padding:0!important;box-shadow:none!important;background:transparent!important;margin:0!important}
-.gradio-container .fillable,.gradio-container .app {max-width:none!important;width:100%!important;margin:0!important}
-.card > .styler, .card > div {gap:10px!important}
-.page-head h1 {color:var(--app-text)!important}
-.metric {flex:1 1 140px}
-.card .dataframe, .card [data-testid=dataframe], .card .table-wrap {background:var(--app-surface)!important;border-color:var(--app-line)!important}
-.card .prose, .card .prose * {color:var(--app-text)!important}
-.card-title {font-size:18px;font-weight:700;margin:0 0 4px;color:var(--app-text)!important}
-.muted,.card .muted,.page-head p {color:var(--app-muted)!important;font-size:12px!important;line-height:1.4!important}
-.card .form, .card .styler,.card .block.padded {background:transparent!important;border-color:transparent!important;box-shadow:none!important}
-.card label,.card label span,.card span,.card .prose {color:var(--app-text)!important}
-.card input:not([type=radio]):not([type=checkbox]),.card textarea,
-.card [role=combobox],.card [data-testid=dropdown],.card select,
-.card .secondary-wrap,.card .wrap, .card .input-container {
- background:var(--app-surface2)!important;color:var(--app-text)!important;border-color:var(--app-line)!important;
- box-shadow:none!important}
-.card input::placeholder,.card textarea::placeholder {color:var(--app-muted)!important;opacity:1!important}
-.card input:not([type=radio]):not([type=checkbox]),.card textarea {padding:9px 12px!important}
-.card [role=combobox] {padding:7px 10px!important;min-height:39px!important}
-.card [role=combobox] *, .card [data-testid=dropdown] * {color:var(--app-text)!important}
-/* The old gray blocks are Gradio radio/dropdown/checkbox wrappers, not card backgrounds. */
-.card label:has(input[type=radio]),.card label:has(input[type=checkbox]),
-.card .radio-group label,.card .checkbox-group label,
-.card [role=radiogroup] label,.card .radio-group,.card .checkbox-group {
- background:transparent!important;color:var(--app-text)!important;border-color:transparent!important;
- box-shadow:none!important}
-.card label:has(input[type=radio]:checked),.card [role=radiogroup] label:has(input:checked) {
- background:var(--app-soft)!important;color:var(--app-accent)!important;border:1px solid var(--app-line)!important}
-.card input[type=radio],.card input[type=checkbox],.card input[type=range] {accent-color:var(--app-accent)!important}
-.card button.secondary,.card button[aria-label*=Reset] {background:var(--app-soft)!important;color:var(--app-text)!important;border-color:var(--app-line)!important}
-#browser-control {min-width:0!important}
-#browser-control .wrap,#browser-control [role=combobox],#browser-control [data-testid=dropdown] {background:var(--app-surface2)!important;box-shadow:none!important}
-/* Controls use a clear two-column grid, no narrow triple-column label wrapping. */
-#scenario-controls {gap:10px!important;align-items:start!important;margin-top:4px!important}
-#scenario-controls > .form {display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;
- gap:10px 20px!important;align-items:start!important;min-width:0!important;width:100%!important}
-#scenario-controls > .form > * {min-width:0!important;width:100%!important;max-width:none!important;flex:none!important;margin:0!important}
-#scenario-controls label {font-size:13px!important}
-#execution-mode-control {margin-top:0!important}
-#execution-mode-control .wrap {background:transparent!important}
-#start-testing {width:100%!important;background:var(--app-accent)!important;color:#fff!important;border:0!important;min-height:42px!important}
-.step {display:flex;align-items:center;padding:8px 10px;border:1px solid var(--app-line);border-radius:8px;margin:4px 0;
- background:var(--app-surface2);color:var(--app-text)!important;font-size:12px;line-height:1.25}
-.step-dot {display:inline-block;flex:none;width:8px;height:8px;border-radius:50%;background:#95a0b2;margin-right:8px}
-.step-status {margin-left:auto;color:var(--app-muted);padding-left:10px;text-align:right;white-space:normal;flex:0 1 auto;min-width:0}
-.step > .step-name {flex:1 1 auto;min-width:0}
-.metric {min-width:0;overflow-wrap:anywhere}
-.status-running .step-dot {background:var(--app-accent)}.status-completed .step-dot {background:#27ae80}
-.status-failed .step-dot {background:#d94f5c}.status-waiting-for-approval .step-dot {background:#e8a33d}.status-skipped .step-dot {background:#d5a642}
-.page-head {margin:0 0 12px}.page-head h1{margin:0 0 4px;font-size:23px}
-.metric {background:var(--app-surface);border:1px solid var(--app-line);border-radius:12px;padding:15px}
-.metric-value{font-size:23px;font-weight:700}.metric-label{font-size:11px;color:var(--app-muted);margin-top:3px}
-.status-note{padding:12px 14px;background:var(--app-soft);border:1px solid var(--app-line);border-radius:10px;color:var(--app-text)}
-/* Simple full-width sidebar navigation with a narrow active indicator, no radio pills. */
-/* App frame: a grid of [sidebar | content]; collapsing only changes --sb-w so content reflows. */
-#app-layout {display:grid!important;grid-template-columns:var(--sb-w,216px) minmax(0,1fr)!important;gap:0!important;
- align-items:start!important;margin:0!important;padding:0!important;flex-wrap:nowrap!important;width:100%!important;max-width:100%!important}
-#app-layout > * {min-width:0!important;max-width:none!important;flex:none!important}
-#app-sidebar {background:var(--app-surface)!important;color:var(--app-text)!important;border-right:1px solid var(--app-line)!important;
- width:var(--sb-w,216px)!important;padding:20px 12px!important;box-sizing:border-box!important;gap:0!important;
- position:sticky!important;top:0!important;height:100vh!important;overflow-y:auto!important;overflow-x:hidden!important;align-self:start!important}
-#app-sidebar > * {background:transparent!important;border:0!important;box-shadow:none!important;padding:0!important;margin:0!important}
-#sidebar-toggle {min-width:0!important;width:100%!important;margin:0 0 10px!important;padding:6px 0!important;min-height:34px!important;
- background:var(--app-soft)!important;color:var(--app-text)!important;border:1px solid var(--app-line)!important;border-radius:8px!important}
-.sb-short {display:none}
-.sidebar-project-title {font-size:17px;font-weight:700;letter-spacing:-.3px;line-height:1.3;
- padding:0 12px 16px;margin:0 0 14px;border-bottom:1px solid var(--app-line);color:var(--app-text)!important}
-#sidebar-navigation,#sidebar-navigation .form,#sidebar-navigation .wrap,#sidebar-navigation .radio-group {
- background:transparent!important;border:0!important;box-shadow:none!important;padding:0!important;gap:3px!important}
-#sidebar-navigation [data-testid=block-info],#sidebar-navigation .label-wrap{display:none!important}
-#sidebar-navigation label {display:flex!important;align-items:center!important;width:100%!important;min-height:44px!important;
- box-sizing:border-box!important;white-space:nowrap!important;line-height:1.2!important;
- padding:11px 12px!important;margin:0!important;border:0!important;border-left:3px solid transparent!important;
- background:transparent!important;color:var(--app-muted)!important;border-radius:7px!important;
- font-size:13px!important;font-weight:600!important;box-shadow:none!important}
-#sidebar-navigation label:hover {background:var(--app-soft)!important;color:var(--app-text)!important}
-#sidebar-navigation label:has(input:checked) {background:var(--app-soft)!important;
- color:var(--app-accent)!important;border-left-color:var(--app-accent)!important}
-#sidebar-navigation label:has(input:checked) span {color:var(--app-accent)!important}
-#sidebar-navigation input[type=radio]{position:absolute!important;opacity:0!important;width:1px!important;height:1px!important}
-.session-mode{font-size:12px;color:var(--app-muted);margin:20px 12px 0;padding-top:15px;border-top:1px solid var(--app-line)}
-.session-mode b{color:var(--app-text)!important}
-button.primary {background:var(--app-accent)!important;color:white!important}
-footer{display:none!important}
-/* Style-injection blocks must not take layout space (they caused the gap above the cards). */
-.style-holder {display:none!important;margin:0!important;padding:0!important;height:0!important;min-height:0!important;border:0!important}
-#scenario-controls label,#scenario-controls span {white-space:nowrap}
-#execution-mode-control .wrap {flex-wrap:nowrap!important}
-@media(max-width:1100px){#request-layout{--request-layout-columns:minmax(0,1fr)!important}}
-@media(max-width:767px){.app-shell{padding:12px!important}
- #app-layout {grid-template-columns:minmax(0,1fr)!important}
- #app-sidebar {position:relative!important;width:100%!important;height:auto!important}
- #scenario-controls > .form {grid-template-columns:minmax(0,1fr)!important}}
-"""
 
 STAGES = ["Intake", "Planner", "Code Generator", "Validation", "Execution", "Evidence Collection", "Analyzer", "Fix Proposal", "Human Approval", "Apply Fix (Healing)", "Report Generation"]
 
@@ -176,68 +44,16 @@ STAGE_STATUSES = {"not run", "running", "waiting for approval", "completed", "fa
 
 
 
-def theme_css(theme: str) -> str:
+PAGES = [label for label, _ in D.NAV_ORDER]
 
-    c = THEMES.get(theme, THEMES["Blue"])
-
-    values = ";".join(f"--app-{key}:{value}" for key, value in c.items())
-
-    values += ";--app-gap:12px;--app-card-pad:14px;--app-sidebar-width:230px"
-
-    # Map the palette onto Gradio's own variables so every built-in component (tables, sliders,
-    # file drop zone, markdown, sidebar) follows the selected theme, in light and dark.
-    gradio_vars = (
-        f"--body-background-fill:{c['bg']};--background-fill-primary:{c['surface']};--background-fill-secondary:{c['soft']};"
-        f"--block-background-fill:{c['surface']};--block-border-color:{c['line']};--border-color-primary:{c['line']};"
-        f"--body-text-color:{c['text']};--body-text-color-subdued:{c['muted']};--block-label-text-color:{c['muted']};"
-        f"--block-title-text-color:{c['text']};--block-info-text-color:{c['muted']};--input-background-fill:{c['surface2']};"
-        f"--input-border-color:{c['line']};--input-placeholder-color:{c['muted']};--panel-background-fill:{c['surface']};"
-        f"--table-even-background-fill:{c['surface']};--table-odd-background-fill:{c['surface2']};--table-border-color:{c['line']};"
-        f"--table-row-focus:{c['soft']};--button-secondary-background-fill:{c['soft']};--button-secondary-text-color:{c['text']};"
-        f"--button-secondary-border-color:{c['line']};--checkbox-background-color:{c['surface2']};--checkbox-border-color:{c['line']};"
-        f"--neutral-100:{c['soft']};--color-accent:{c['accent']};--slider-color:{c['accent']};--shadow-drop:none;"
-        f"color-scheme:{'light' if theme == 'Light' else 'dark'}"
-    )
-    selector = "html:root, html body, html body.dark, html .dark, html .gradio-container"
-    return f"<style>:root{{{values}}} {selector}{{{values};{gradio_vars}}}</style>"
-
-
-
-
-
-def request_layout_css(show_progress: bool) -> str:
-
-    columns = "minmax(0,7fr) minmax(0,3fr)" if show_progress else "minmax(0,1fr)"
-
-    return f"<style>#request-layout{{--request-layout-columns:{columns}!important}}@media(max-width:1100px){{#request-layout{{--request-layout-columns:minmax(0,1fr)!important}}}}</style>"
-
-
-
-
-
-NAV_FULL = [("▦  User Request", "User Request"), ("▤  Reports", "Results & Reports"), ("⚙  Settings", "Settings")]
-
-NAV_ICONS = [("▦", "User Request"), ("▤", "Results & Reports"), ("⚙", "Settings")]
-
-
-
+NAV_CHOICES = [(label, label) for label in PAGES]
 
 
 def toggle_sidebar(collapsed: bool, page: str):
-
     """Switch between the full menu and a narrow icon-only rail; content reflows via --sb-w."""
-
     collapsed = not collapsed
-
-    style = ("<style>#app-layout{--sb-w:64px}#app-sidebar{padding:20px 8px!important}.sb-full,.session-mode{display:none!important}"
-             ".sb-short{display:inline!important}.sidebar-project-title{text-align:center;padding:0 0 12px!important}"
-             "#sidebar-navigation label{justify-content:center!important;padding:11px 0!important}</style>") if collapsed else ""
-
-    return (collapsed, style, gr.update(choices=NAV_ICONS if collapsed else NAV_FULL, value=page),
-            gr.update(value="▶" if collapsed else "◀"))
-
-
-
+    return (collapsed, D.collapsed_css() if collapsed else "", gr.update(value=page),
+            gr.update(value="▶" if collapsed else "◀ Collapse"))
 
 
 def progress_visibility(show_progress: bool) -> tuple[gr.update, str]:
@@ -278,12 +94,13 @@ def render_progress(statuses: dict[str, str] | None = None, notes: dict[str, str
 
 
 
+METRIC_STYLE = {"Total Scenarios": ("", "results"), "Passed": ("ok", "check"), "Failed": ("bad", "x"), "Skipped": ("", "alert"),
+                "Execution Time": ("info", "clock"), "Execution Time (simulated)": ("info", "clock"), "Healing Attempts": ("warn", "zap")}
+
+
 def metric_card(value: str, label: str) -> str:
-
-    return f"<div class='metric'><div class='metric-value'>{html.escape(value)}</div><div class='metric-label'>{html.escape(label)}</div></div>"
-
-
-
+    tone, ico = METRIC_STYLE.get(label, ("", "activity"))
+    return D.kpi(label, value, "", tone if value not in ("—", "0") or tone in ("", "info") else "", ico)
 
 
 def set_theme(theme: str) -> tuple[str, str]:
@@ -294,24 +111,20 @@ def set_theme(theme: str) -> tuple[str, str]:
 
 
 
-def navigate(page: str) -> tuple[gr.update, gr.update, gr.update]:
-
-    return (gr.update(visible=page == "User Request"), gr.update(visible=page == "Results & Reports"), gr.update(visible=page == "Settings"))
-
+def navigate(page: str) -> list:
+    return [gr.update(visible=page == name) for name in PAGES]
 
 
+def topbar_html(page: str, use_mock: bool) -> str:
+    mocking = use_mock is True or str(use_mock).strip().lower() in {"true", "1", "yes", "on"}
+    mode = D.badge("Mock mode · simulated", "violet") if mocking else D.badge("Live mode · real agents", "info")
+    return f"<div class='crumb'>QC AI <span>/</span> <b>{html.escape(page)}</b> {mode}</div>"
 
 
-def session_mode_label(use_sandbox: bool) -> str:
-
-    sandbox_enabled = use_sandbox is True or str(use_sandbox).strip().lower() in {"true", "1", "yes", "on"}
-
-    mode = "Sandbox mode (simulated)" if sandbox_enabled else "Live mode (real agents only)"
-
-    return f"<div class='session-mode'>Session mode<br><b>{mode}</b></div>"
-
-
-
+def session_mode_label(use_mock: bool) -> str:
+    mocking_enabled = use_mock is True or str(use_mock).strip().lower() in {"true", "1", "yes", "on"}
+    mode = "Mock mode (simulated, no real LLM)" if mocking_enabled else "Live mode (real agents only)"
+    return f"<div class='session-mode'>Session mode<b>{mode}</b></div>"
 
 
 def save_llm_settings(provider: str, model: str, api_key: str) -> tuple[str, dict]:
@@ -362,7 +175,7 @@ def scenario_details(run: dict | None, evt: gr.SelectData) -> str:
 
 def _report_notice(run: dict) -> str:
     if run["simulated"]:
-        return "SIMULATED sandbox run: agents, browser execution, and fixes are mocks. This is not a real test result."
+        return "SIMULATED mock run: agents, browser execution, and fixes are mocks. This is not a real test result."
     return "Live run."
 
 
@@ -656,7 +469,7 @@ def _advance(thread_id: str, graph_input):
     except NotImplementedError as exc:
         stage = next((s for s, st in tracker.status.items() if st in tracker.ACTIVE), "a stage")
         info["error"] = (f"The live workflow stopped at **{stage}**: {_scrub(exc, info)} "
-                         "No mock or sandbox data was substituted.")
+                         "No mock data was substituted.")
         tracker.fail_running("not implemented")
     except Exception as exc:
         info["error"] = f"{type(exc).__name__}: {_scrub(exc, info)}"
@@ -669,6 +482,28 @@ def _advance(thread_id: str, graph_input):
         info["ended"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
         release_run_credentials(thread_id)
         info["secret"] = ""
+    _persist(thread_id)
+
+
+def _persist(thread_id: str) -> None:
+    """Save a summary of this run for the dashboards (UI-side bookkeeping only; never read back by the workflow)."""
+    try:
+        info, values = RUNS[thread_id], _snapshot_values(thread_id)
+        run = build_run(thread_id)
+        tests = (values.get("execution_result") or {}).get("tests") or []
+        duration = sum(int(t.get("duration_ms") or 0) for t in tests) if tests else None
+        status = "PENDING" if info.get("paused") else ("ERROR" if info.get("error") else run["terminal_status"])
+        H.save_record({
+            "id": thread_id, "run_id": run["run_id"], "source": "ui", "started": info["started"], "ended": info.get("ended"),
+            "mock": info["mock"], "status": status, "url": info["meta"]["url"], "total": len(run["scenarios"]),
+            "passed": run["passed"], "failed": run["failed"], "skipped": run["skipped"], "duration_ms": duration,
+            "healing": run["healing_attempts"], "failure_type": (values.get("failure_analysis") or {}).get("failure_type"),
+            "fix_proposed": bool(values.get("fix_proposal")), "decisions": list(info.get("decisions") or []),
+            "trail": list(info["trail"]),
+            "validation_failed": any(h["stage"] == "Validation" and h["status"] == "Failed" for h in info["tracker"].history),
+        })
+    except Exception:
+        pass  # history is best-effort and must never interfere with the workflow
 
 
 def _snapshot_values(thread_id: str) -> dict:
@@ -685,7 +520,7 @@ def _status_text(thread_id: str) -> str:
         return f"### Workflow stopped\n{info['error']}"
     if info.get("paused"):
         return f"Workflow paused for human approval. Healing attempts used so far: {healing} of {MAX_HEALING}."
-    label = "SIMULATED" if info["sandbox"] else "LIVE"
+    label = "SIMULATED" if info["mock"] else "LIVE"
     return (f"Workflow completed: {values.get('terminal_status', 'UNKNOWN')} ({label}). "
             f"Healing attempts used: {healing} of {MAX_HEALING}.")
 
@@ -729,7 +564,7 @@ def _view(thread_id: str | None, status: str, session=NOOP, history=NOOP):
     return status, session, _progress_html(thread_id), details, buttons, gr.update(visible=True), history
 
 
-def start_graph_workflow(url, requirements, browser, mode, maximum, timeout, authorization, use_sandbox,
+def start_graph_workflow(url, requirements, browser, mode, maximum, timeout, authorization, use_mock,
                          mock_outcome, mock_risky, mock_fixes=1, llm_cfg=None, history=None):
     """Start the LangGraph workflow and stream real node progress to the UI."""
     history = list(history or [])
@@ -747,11 +582,11 @@ def start_graph_workflow(url, requirements, browser, mode, maximum, timeout, aut
         return
 
     llm_public, model_string, settings = None, None, None
-    if not use_sandbox:
+    if not use_mock:
         cfg = llm_cfg or {}
         if not cfg.get("validated"):
             yield _view(None, "### Live mode needs validated LLM settings\nOpen **Settings → LLM configuration** and "
-                              "save valid credentials, or enable **Use sandbox** for a simulated run. "
+                              "save valid credentials, or enable **Use mock mode** for a simulated run. "
                               "No mock data is used in live mode.")
             return
         settings = LLMSettings(cfg["provider"], cfg["model"], cfg.get("api_key", ""), True)
@@ -763,7 +598,7 @@ def start_graph_workflow(url, requirements, browser, mode, maximum, timeout, aut
 
     thread_id = str(uuid4())
     info = {"thread_id": thread_id, "tracker": StageTracker(), "trail": [], "error": None, "paused": False,
-            "sandbox": bool(use_sandbox), "started": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "mock": bool(use_mock), "started": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "ended": None, "lock": threading.Lock(), "llm": llm_public,
             "secret": effective_key(settings.provider, settings.api_key) if settings else "",
             "meta": {"url": url.strip(), "requirements": requirements.strip(), "browser": browser,
@@ -776,12 +611,12 @@ def start_graph_workflow(url, requirements, browser, mode, maximum, timeout, aut
     request = {"url": url.strip(), "requirements": requirements.strip(), "scenario_cap": int(maximum),
                "authorization": bool(authorization)}
     initial_state = {"test_request": request, "healing_retry_count": 0, "errors": []}
-    if use_sandbox:
-        initial_state.update(sandbox_mode=True, mock_execution_outcome=mock_outcome, mock_risky=bool(mock_risky),
+    if use_mock:
+        initial_state.update(mock_mode=True, mock_execution_outcome=mock_outcome, mock_risky=bool(mock_risky),
                              mock_fixes_needed=int(mock_fixes))
     else:
         request.update(planner_model=model_string, codegen_model=model_string, healer_model=model_string)
-        initial_state["sandbox_mode"] = False
+        initial_state["mock_mode"] = False
         register_run_credentials(thread_id, settings)
 
     info["tracker"].begin("intake")
@@ -806,6 +641,7 @@ def resume_graph_workflow(session, decision):
         yield _view(thread_id, "A decision for this run is already being processed.", session)
         return
     try:
+        info.setdefault("decisions", []).append(decision)
         info["paused"] = False
         yield _view(thread_id, f"Fix {decision}; resuming workflow…", session)
         for _ in _advance(thread_id, Command(resume=decision)):
@@ -846,7 +682,7 @@ def build_run(thread_id: str) -> dict | None:
     values = _snapshot_values(thread_id)
     plan = values.get("test_plan") or []
     result = values.get("execution_result") or {}
-    simulated = bool(result.get("simulated")) or info["sandbox"]
+    simulated = bool(result.get("simulated")) or info["mock"]
     tag = " (simulated)" if simulated else ""
     tests = {t.get("scenario_name"): t for t in result.get("tests", [])}
     evidence = {e.get("scenario_name"): e for e in values.get("execution_evidence") or []}
@@ -906,8 +742,8 @@ def build_run(thread_id: str) -> dict | None:
     passed_n = sum(r["Status"] == "Passed" for r in rows)
     return {
         "run_id": values.get("run_id") or thread_id, "thread_id": thread_id, "created_at": info["started"],
-        "mode": "Sandbox — simulated agents and browser" if info["sandbox"] else "Live",
-        "simulated": info["sandbox"], "terminal_status": terminal, "healing_attempts": healing,
+        "mode": "Mock mode — simulated agents and browser" if info["mock"] else "Live",
+        "simulated": info["mock"], "terminal_status": terminal, "healing_attempts": healing,
         "models_used": values.get("models_used") or {}, "errors": list(values.get("errors") or []),
         "trail": list(info["trail"]), "workflow_error": info.get("error"), "paused": bool(info.get("paused")),
         "llm": info.get("llm"), **info["meta"], "scenarios": rows,
@@ -922,7 +758,7 @@ def run_summary_markdown(run: dict | None) -> str:
         return "No run yet. Start a test from **User Request**."
     models = ", ".join(f"{k}: {v}" for k, v in run["models_used"].items()) or "none recorded"
     if run["simulated"]:
-        llm = "Sandbox — no LLM provider is called; LLM settings are not used."
+        llm = "Mock mode — no LLM provider is called; LLM settings are not used."
     else:
         llm = f"{run['llm']['provider']} · {run['llm']['model']} (key not shown)" if run["llm"] else "n/a"
     lines = [f"**Result:** {run['terminal_status']}" + (" — **awaiting your approval on the User Request page**" if run["paused"] else ""),
@@ -947,264 +783,468 @@ def refresh_results(session, history):
     cards = [gr.update(value=metric_card(v, lbl)) for v, lbl in zip(values, labels)]
     table = [[s["Scenario ID"], s["Scenario Name"], s["Status"], s["Duration"], s["Error Summary"]]
              for s in run["scenarios"]] if run else []
-    choices = [(f"{RUNS[t]['started'][11:19]} · {'Sandbox' if RUNS[t]['sandbox'] else 'Live'} · {RUNS[t]['meta']['url']}", t)
+    choices = [(f"{RUNS[t]['started'][11:19]} · {'Mock' if RUNS[t]['mock'] else 'Live'} · {RUNS[t]['meta']['url']}", t)
                for t in (history or []) if t in RUNS]
     return (run, *cards, gr.update(value=table), "Select a scenario row to inspect its details.",
             run_summary_markdown(run), gr.update(choices=choices, value=thread_id))
 
 
+# ------------------------------------------------------------------- page renderers (read-only views of real state)
+_DIFF_RE = re.compile(r"```diff\n(.*?)\n```", re.S)
+
+
+def _tid(session) -> str | None:
+    thread_id = session.get("thread_id") if isinstance(session, dict) else None
+    return thread_id if thread_id in RUNS else None
+
+
+def _pending_count() -> int:
+    return sum(1 for info in RUNS.values() if info.get("paused"))
+
+
+def _text_html(text: object) -> str:
+    return html.escape(str(text if text is not None else "")).replace("\n", "<br>")
+
+
+def workflow_graph_html(thread_id: str | None) -> str:
+    info = RUNS.get(thread_id) if thread_id else None
+    if info is None:
+        head = D.note("No run selected. The graph shows the real LangGraph structure; node colours appear once a run starts.", "info")
+        svg = D.workflow_svg(None)
+    else:
+        tracker = info["tracker"]
+        if info.get("error"):
+            state = D.badge("Stopped", "bad")
+        elif info.get("paused"):
+            state = D.badge("Waiting for approval", "warn")
+        elif info.get("ended"):
+            state = D.badge("Finished", "ok")
+        else:
+            state = D.badge("Running", "info")
+        mode = D.badge("Mock", "violet") if info["mock"] else D.badge("Live", "info")
+        head = (f"<div class='tag-row' style='margin:0 0 6px'>{state}{mode}<span class='muted' style='margin:0'>"
+                f"{html.escape(info['meta']['url'])}</span></div>")
+        status, notes = tracker.view()
+        svg = D.workflow_svg(status, notes, tracker.count)
+    return f"{head}<div class='wf-card'>{svg}</div>{D.workflow_legend()}"
+
+
+def workflow_details_html(thread_id: str | None) -> str:
+    info = RUNS.get(thread_id) if thread_id else None
+    if info is None:
+        trail = D.empty("No execution trail yet", "The nodes that actually ran are listed here for the selected run.", "workflow")
+    else:
+        steps = "".join(f"<div><b>{i}.</b> {html.escape(step)}</div>" for i, step in enumerate(info["trail"], 1))
+        trail = f"<div class='log'>{steps or 'Waiting for the first node to finish…'}</div>"
+        if info.get("error"):
+            trail += D.note(_text_html(info["error"]).replace("**", ""), "bad")
+        passes = [h for h in info["tracker"].history if info["tracker"].count[h["stage"]] > 1]
+        if passes:
+            trail += "<div style='margin-top:12px'>" + D.table(
+                ["Stage", "Pass", "Status", "Note"], [[h["stage"], f"#{h['pass']}", h["status"], h["note"] or "—"] for h in passes]) + "</div>"
+    return (f"<div class='stack'>{D.panel('Execution trail', trail, 'Nodes that really ran, in order')}"
+            f"{D.panel('Routing rules', D.routing_table(), 'Mirrors graph/routing.py: what decides each branch')}</div>")
+
+
+def approval_card_html(thread_id: str | None) -> str:
+    info = RUNS.get(thread_id) if thread_id else None
+    payload = _pending_interrupt(thread_id) if info else None
+    values = _snapshot_values(thread_id) if info else {}
+    analysis = values.get("failure_analysis") or {}
+    if not payload:
+        fix, decisions = values.get("fix_proposal"), (info or {}).get("decisions") or []
+        if info and fix and decisions:
+            return (f"<div class='panel'><div class='panel-head'><div class='panel-title'>Last decision for this run</div>"
+                    f"{D.badge(decisions[-1])}</div><div class='panel-body stack'><p class='muted'>{html.escape(str(fix.get('reason', '')))}</p>"
+                    f"{D.diff_html(fix.get('patch_diff', ''))}</div></div>")
+        return D.empty("No fix is awaiting approval",
+                       "When a failed test gets a proposed fix, it appears here and the workflow waits. Nothing is ever applied automatically.", "shield")
+    evidence = next((e for e in values.get("execution_evidence") or [] if e.get("error_message")), {})
+    subtype = f" / {analysis['subtype']}" if analysis.get("subtype") else ""
+    confidence = str(analysis.get("confidence", "n/a"))
+    tone = {"high": "ok", "medium": "warn", "low": "bad"}.get(confidence, "mute")
+    used = values.get("healing_retry_count", 0)
+    risky = D.badge("Risky fix", "bad") if payload.get("risky") else D.badge("Not flagged risky", "ok")
+    facts = (f"<dl class='kv'><dt>Identified issue</dt><dd>{html.escape(str(evidence.get('scenario_name') or '—'))}: "
+             f"{html.escape(str(evidence.get('error_message') or 'no error message recorded'))}</dd>"
+             f"<dt>Failure class</dt><dd>{html.escape(str(analysis.get('failure_type', '?')))}{html.escape(subtype)}</dd>"
+             f"<dt>Root cause</dt><dd>{html.escape(str(analysis.get('root_cause', 'n/a')))}</dd>"
+             f"<dt>Confidence</dt><dd>{D.badge(confidence, tone)}</dd>"
+             f"<dt>Suggested fix</dt><dd>{html.escape(str(payload.get('reason', '')))}</dd>"
+             f"<dt>Healing attempt</dt><dd>{used + 1} of {MAX_HEALING}</dd>"
+             f"<dt>Run mode</dt><dd>{D.badge('Mock', 'violet') if info['mock'] else D.badge('Live', 'info')}</dd></dl>")
+    warn = D.note("The Fix Proposal agent flagged this patch as <b>risky</b>. Review it carefully before deciding.", "warn") if payload.get("risky") else ""
+    guide = D.note("<b>Approve</b> applies this patch, then the workflow re-validates and re-runs the test. "
+                   "<b>Reject</b> discards it and finishes the run with its current result.", "info")
+    return (f"<div class='panel approval-box'><div class='panel-head'><div><div class='panel-title'>Human fix approval required</div>"
+            f"<div class='panel-sub'>The workflow is paused at the approval gate. It resumes only with your decision.</div></div>"
+            f"<div class='tag-row'>{D.badge('Waiting for approval', 'warn')}{risky}</div></div><div class='panel-body stack'>"
+            f"{warn}{facts}<div class='panel-title'>Proposed patch</div>{D.diff_html(payload.get('patch_diff', ''))}{guide}</div></div>")
+
+
+def approval_history_html() -> str:
+    rows = []
+    for rec in sorted((r for r in H.load_records() if r.get("source") == "ui" and r.get("decisions")),
+                      key=lambda r: r.get("started") or "", reverse=True)[:15]:
+        rows.append([V._fmt_time(rec.get("started")), V._short_url(rec.get("url") or "—"), V._mode_badge(rec),
+                     " ".join(D.badge(d) for d in rec["decisions"]), D.badge(rec.get("status"))])
+    if not rows:
+        return D.empty("No decisions recorded yet", "Approvals and rejections are logged here with the run's final status.", "shield")
+    return D.table(["Run started", "Application", "Mode", "Decisions (in order)", "Final status"], rows, raw_cols=(2, 3, 4))
+
+
+def results_extras_html(thread_id: str | None) -> tuple[str, str, str]:
+    run = build_run(thread_id) if thread_id in RUNS else None
+    if not run:
+        empty = D.empty("No run selected", "Start a test or choose a run above.", "inbox")
+        return empty, empty, empty
+    values = _snapshot_values(thread_id)
+    cards = []
+    analysis = values.get("failure_analysis")
+    if analysis:
+        cards.append(D.note(f"Analyzer: <b>{html.escape(str(analysis.get('failure_type')))}</b>"
+                            f"{html.escape(' / ' + analysis['subtype']) if analysis.get('subtype') else ''} · confidence "
+                            f"<b>{html.escape(str(analysis.get('confidence', 'n/a')))}</b>", "info"))
+    for sc in run["scenarios"]:
+        fix = sc["Proposed Fix"]
+        m = _DIFF_RE.search(fix)
+        fix_html = (_text_html(_DIFF_RE.sub("", fix).strip()) + D.diff_html(m.group(1))) if m else _text_html(fix)
+        body = (f"<dl class='kv'><dt>Error message</dt><dd>{_text_html(sc['Error Message'])}</dd>"
+                f"<dt>Analysis</dt><dd>{_text_html(sc['Analysis'])}</dd><dt>Proposed fix</dt><dd>{fix_html}</dd></dl>")
+        cards.append(D.panel(f"{sc['Scenario ID']} · {sc['Scenario Name']}", body, right=D.badge(sc["Status"])))
+    failure_html = f"<div class='stack'>{''.join(cards)}</div>" if run["scenarios"] else D.empty("No scenarios", "This run produced no test plan.", "inbox")
+
+    rows = [[e.get("scenario_name") or "—", e.get("screenshot_path") or "not captured", e.get("trace_path") or "not captured",
+             e.get("final_url") or "—", str(len(e.get("console_log") or [])), str(len(e.get("network_errors") or []))]
+            for e in values.get("execution_evidence") or []]
+    artifacts = (D.table(["Scenario", "Screenshot", "Trace", "Final URL", "Console", "Net errors"], rows)
+                 + (D.note("Mock mode: these artifacts are simulated.", "violet") if run["simulated"] else "")) if rows else \
+        D.empty("No artifacts collected", "Evidence (screenshots, traces, console and network logs) appears here after execution.", "inbox")
+
+    steps = "".join(f"<div><b>{i}.</b> {html.escape(step)}</div>" for i, step in enumerate(run["trail"], 1))
+    log = f"<div class='log'>{steps or 'No nodes have finished yet.'}</div>"
+    if run["errors"]:
+        log += D.note("Recorded errors: " + html.escape("; ".join(run["errors"])), "bad")
+    if run["workflow_error"]:
+        log += D.note(_text_html(run["workflow_error"]).replace("**", ""), "bad")
+    return failure_html, artifacts, f"<div class='panel'><div class='panel-body'>{log}</div></div>"
+
+
+def report_overview_html(thread_id: str | None) -> str:
+    run = build_run(thread_id) if thread_id in RUNS else None
+    if not run:
+        return D.empty("No run selected", "Select or start a run to see its report summary. Saved report files are listed below.", "file")
+    facts = "".join(f"<dt>{html.escape(k)}</dt><dd>{html.escape(str(v))}</dd>" for k, v in _report_facts(run))
+    scen = D.table(["ID", "Scenario", "Status", "Duration", "Error summary"],
+                   [[s["Scenario ID"], s["Scenario Name"], D.badge(s["Status"]), s["Duration"], s["Error Summary"]] for s in run["scenarios"]],
+                   raw_cols=(2,)) if run["scenarios"] else D.empty("No scenarios", "This run produced no test plan.", "inbox")
+    decisions = RUNS[thread_id].get("decisions") or []
+    outcome = (" ".join(D.badge(d) for d in decisions)) if decisions else "<span class='muted'>No approval decision was needed or recorded.</span>"
+    summary = D.panel("Execution summary", f"<dl class='kv'>{facts}</dl>")
+    results = f"<div class='stack'>{D.panel('Test results', scen)}{D.panel('Approval history for this run', outcome)}</div>"
+    return (D.note(html.escape(_report_notice(run)), "violet" if run["simulated"] else "info")
+            + f"<div class='stack'>{summary}{results}</div>")
+
+
+def open_persisted_report(run_dir):
+    md, page = H.report_file(run_dir, "report.md"), H.report_file(run_dir, "report.html")
+    if not (md or page):
+        return "Choose a report folder to open its report.", None
+    text = md.read_text(encoding="utf-8", errors="replace")[:200_000] if md else "This run folder has no report.md."
+    return text, [str(p) for p in (md, page) if p]
+
+
+def _saved_reports_panel() -> str:
+    return D.panel("Saved report files", V.persisted_reports_table(), "Existing runs/<run id>/report.md and report.html files")
+
+
+def refresh_pages(session):
+    """Re-render every read-only page for the active run from real state and persisted history."""
+    thread_id = _tid(session)
+    pending = _pending_count()
+    failure_html, artifacts_html, log_html = results_extras_html(thread_id)
+    awaiting = bool(thread_id and _pending_interrupt(thread_id))
+    return [V.overview_html(H.load_records(), pending), workflow_graph_html(thread_id), workflow_details_html(thread_id),
+            approval_card_html(thread_id), gr.update(visible=awaiting), failure_html, artifacts_html, log_html,
+            report_overview_html(thread_id), _saved_reports_panel(), gr.update(choices=H.list_report_dirs()),
+            approval_history_html(), gr.update(visible=pending > 0)]
+
+
+def goto_approval(session):
+    thread_id = _tid(session)
+    if not (thread_id and RUNS[thread_id].get("paused")):
+        thread_id = next((t for t, info in RUNS.items() if info.get("paused")), thread_id)
+    if thread_id:
+        session = {"thread_id": thread_id, "waiting_for_approval": bool(_pending_interrupt(thread_id))}
+    return "Fix & Approval", session
+
+
+def _ui_frames(frames):
+    """Map the workflow's UI frames onto the redesigned components (rich approval card + live graph)."""
+    for f in frames:
+        thread_id = _tid(f[1])
+        yield (f[0], f[1], f[2], approval_card_html(thread_id) if thread_id else NOOP, f[4], f[5], f[6],
+               workflow_graph_html(thread_id) if thread_id else NOOP)
+
+
+def start_ui(*args):
+    yield from _ui_frames(start_graph_workflow(*args))
+
+
+def confirmed_decision(session, decision):
+    """Runs only after the explicit confirmation step; the real gate (pending-interrupt check) still applies."""
+    hide = gr.update(visible=False)
+    for frame in _ui_frames(resume_graph_workflow(session, decision)):
+        yield (*frame, hide)
+
+
+def ask_confirm(session, decision):
+    thread_id = _tid(session)
+    if not thread_id or not _pending_interrupt(thread_id):
+        return None, gr.update(visible=False), "", NOOP
+    if decision == "approved":
+        text, tone = "You are about to <b>approve</b> this patch. It will be applied, then the workflow re-validates and re-runs the test.", "warn"
+    else:
+        text, tone = "You are about to <b>reject</b> this patch. It will not be applied and the run finishes with its current result.", "bad"
+    return decision, gr.update(visible=True), D.note(text, tone), gr.update(visible=False)
+
+
+def cancel_confirm():
+    return None, gr.update(visible=False), gr.update(visible=True)
+
+
+def select_run_ui(thread_id):
+    """Switch the active run; returns [session, status, progress, buttons]."""
+    session, status, progress, _details, buttons = select_run(thread_id)
+    return session, status, progress, buttons
+
+
 def build_ui() -> gr.Blocks:
-
-    with gr.Blocks(title="QC AI · Test Automation") as demo:
-
-        theme_state = gr.State("Blue")
-
+    with gr.Blocks(title="QC AI · Test Automation Platform") as demo:
+        theme_state = gr.State("Dark")
         run_state = gr.State(None)
-
         run_history = gr.State([])
-
         sidebar_collapsed = gr.State(False)
-
-        theme_style = gr.HTML(theme_css("Blue"), elem_classes="style-holder")
-
+        workflow_session = gr.State(None)
+        pending_decision = gr.State(None)
+        llm_state = gr.State({})
+        theme_style = gr.HTML(theme_css("Dark"), elem_classes="style-holder")
         collapse_style = gr.HTML("", elem_classes="style-holder")
-
         layout_style = gr.HTML(request_layout_css(True), elem_classes="style-holder")
 
         with gr.Row(elem_id="app-layout"):
-
             with gr.Column(elem_id="app-sidebar", scale=0):
-
-                gr.HTML("<div class='sidebar-project-title'><span class='sb-short'>QC</span><span class='sb-full'>QC AI <span style='color:var(--app-accent)'>•</span><br>Test Automation</span></div>")
-
-                sidebar_toggle = gr.Button("◀", elem_id="sidebar-toggle", size="sm")
-
-                nav = gr.Radio(choices=[("▦  User Request", "User Request"), ("▤  Reports", "Results & Reports"), ("⚙  Settings", "Settings")], value="User Request", show_label=False, container=False, elem_classes="sidebar-nav", elem_id="sidebar-navigation")
-
+                gr.HTML("<div class='brand'><div class='brand-mark'>QC</div><div class='brand-name sb-full'>QC AI"
+                        "<small>Test Automation Platform</small></div></div>")
+                sidebar_toggle = gr.Button("◀ Collapse", elem_id="sidebar-toggle", size="sm")
+                nav = gr.Radio(choices=NAV_CHOICES, value="Overview", show_label=False, container=False,
+                               elem_classes="sidebar-nav", elem_id="sidebar-navigation")
                 session_mode = gr.HTML(session_mode_label(True))
 
             with gr.Column(elem_classes="app-shell"):
+                with gr.Row(elem_classes="topbar"):
+                    topbar = gr.HTML(topbar_html("Overview", True))
+                    goto_btn = gr.Button("Review pending approval", visible=False, variant="primary", size="sm", scale=0)
 
-                with gr.Column(visible=True, elem_id="user-request-page") as request_page:
+                # ------------------------------------------------------------------ 1 Overview
+                with gr.Column(visible=True, elem_classes="page-col") as overview_page:
+                    gr.HTML(D.page_head("Overview", "Everything the platform has recorded, at a glance. Numbers come from real runs only.", "overview"))
+                    with gr.Row():
+                        ov_new = gr.Button("Start a new test", variant="primary", scale=0, min_width=170)
+                        ov_analytics = gr.Button("View analytics", scale=0, min_width=150)
+                    overview_out = gr.HTML(V.overview_html([], 0))
 
-                    with gr.Row(elem_id="request-layout", elem_classes="request-layout"):
-
+                # ------------------------------------------------------------- 2 Create & Run
+                with gr.Column(visible=False, elem_classes="page-col", elem_id="user-request-page") as request_page:
+                    gr.HTML(D.page_head("Create & Run", "Describe the application and behaviours to test. The LangGraph workflow plans, generates, validates and executes the tests.", "play"))
+                    with gr.Row(elem_id="request-layout"):
                         with gr.Column(elem_id="request-card-column"):
-
                             with gr.Group(elem_classes="card"):
-
-                                gr.HTML("<div class='card-title'>Test configuration</div><p class='muted'>Tell us which application and behaviors to cover.</p>")
-
-                                url = gr.Textbox(label="Application URL", placeholder="https://your-app.example")
-
-                                requirements = gr.Textbox(label="Test requirements", placeholder="Describe the user journey or behaviors to verify…", lines=2)
-
+                                gr.HTML("<div class='card-title'>Test configuration</div><p class='muted'>Tell us which application and behaviours to cover.</p>")
+                                url = gr.Textbox(label="Application URL", placeholder="https://your-app.example",
+                                                 info="Full address, starting with https:// or http://.")
+                                requirements = gr.Textbox(label="Test requirements", lines=3,
+                                                          placeholder="Describe the user journey or behaviours to verify…",
+                                                          info="Plain language. At least one requirement is needed.")
                                 with gr.Row(elem_id="scenario-controls", equal_height=False):
-
                                     browser = gr.Dropdown(["Chromium", "Firefox", "WebKit"], value="Chromium", label="Browser", elem_id="browser-control")
-
                                     maximum = gr.Slider(1, 5, value=3, step=1, label="Maximum number of scenarios")
-
                                     mode = gr.Radio(["Headless", "Visible Browser"], value="Headless", label="Execution mode", elem_id="execution-mode-control")
-
                                     timeout = gr.Slider(10, 180, value=30, step=5, label="Timeout (seconds)")
-
                                 authorization = gr.Checkbox(label="I am authorized to test this application.")
-
                                 start = gr.Button("Start Testing", variant="primary", size="lg", elem_id="start-testing")
-
                                 request_status = gr.Markdown()
-
-
-                                workflow_session = gr.State(None)
-
-                                approval_details = gr.Markdown(
-                                    visible=False,
-                                    label="Human Fix Approval",
-                                )
-
-                                with gr.Row(visible=False) as approval_buttons:
-                                    approve_btn = gr.Button(
-                                        "Approve Fix",
-                                        variant="primary",
-                                    )
-
-                                    reject_btn = gr.Button(
-                                        "Reject Fix",
-                                        variant="stop",
-                                    )
-
                                 return_btn = gr.Button("Return to Results", visible=False, elem_id="return-to-results")
-
-
-
                         with gr.Column(visible=True, elem_id="progress-card-column") as progress_panel:
-
                             with gr.Group(elem_classes="card"):
-
                                 gr.HTML("<div class='card-title'>Execution progress</div><p class='muted'>Stages update live from the workflow nodes that actually execute, including approval, healing and reruns.</p>")
-
                                 progress = gr.HTML(render_progress())
+                                gr.HTML("<p class='muted'>Mock-mode runs use simulated agents and a simulated browser. Live runs use the model selected in Settings and stop with a clear message at any stage that is not implemented yet.</p>")
 
-                                gr.Markdown("Sandbox runs use simulated agents and a simulated browser. Live runs use the model selected in Settings and stop with a clear message at any stage that is not implemented yet.", elem_classes="muted")
-
-                with gr.Column(visible=False) as results_page:
-
-                    gr.HTML("<div class='page-head'><h1>Results & Reports</h1><p>Review the selected run's execution results, evidence, analysis and proposed fixes, and export its report.</p></div>")
-
+                # --------------------------------------------------------------- 3 AI Workflow
+                with gr.Column(visible=False, elem_classes="page-col") as workflow_page:
+                    gr.HTML(D.page_head("AI Workflow", "The real LangGraph pipeline with its conditional branches, the human approval gate and the heal loop.", "workflow"))
                     with gr.Group(elem_classes="card"):
+                        wf_graph = gr.HTML(workflow_graph_html(None))
+                    wf_details = gr.HTML(workflow_details_html(None))
 
+                # ------------------------------------------------------------------- 4 Results
+                with gr.Column(visible=False, elem_classes="page-col") as results_page:
+                    gr.HTML(D.page_head("Results", "Execution results, failure analysis, evidence and logs for the selected run.", "results"))
+                    with gr.Group(elem_classes="card"):
                         run_picker = gr.Dropdown([], label="Run", info="Each run keeps its own workflow state.", interactive=True)
+                        run_summary = gr.Markdown("No run yet. Start a test from **Create & Run**.")
+                    with gr.Row(elem_classes="kpi-row"):
+                        metric_total = gr.HTML(metric_card("—", "Total Scenarios"))
+                        metric_pass = gr.HTML(metric_card("—", "Passed"))
+                        metric_fail = gr.HTML(metric_card("—", "Failed"))
+                        metric_skip = gr.HTML(metric_card("—", "Skipped"))
+                        metric_time = gr.HTML(metric_card("—", "Execution Time"))
+                        metric_heal = gr.HTML(metric_card("—", "Healing Attempts"))
+                    with gr.Tabs():
+                        with gr.Tab("Scenarios"):
+                            with gr.Group(elem_classes="card"):
+                                scenarios_table = gr.Dataframe(headers=["Scenario ID", "Scenario Name", "Status", "Duration", "Error Summary"],
+                                                               datatype=["str"] * 5, interactive=False, value=[])
+                                scenario_info = gr.Markdown("Select a scenario row to inspect its details.")
+                        with gr.Tab("Failure analysis"):
+                            res_analysis = gr.HTML(results_extras_html(None)[0])
+                        with gr.Tab("Artifacts & evidence"):
+                            res_artifacts = gr.HTML(results_extras_html(None)[1])
+                        with gr.Tab("Execution log"):
+                            res_log = gr.HTML(results_extras_html(None)[2])
 
-                        run_summary = gr.Markdown("No run yet. Start a test from **User Request**.")
+                # ------------------------------------------------------------ 5 Fix & Approval
+                with gr.Column(visible=False, elem_classes="page-col") as approval_page:
+                    gr.HTML(D.page_head("Fix & Approval", "Review the proposed fix. Nothing is applied until a human approves it.", "shield"))
+                    approval_card = gr.HTML(approval_card_html(None))
+                    with gr.Row(visible=False) as approval_buttons:
+                        approve_btn = gr.Button("Approve Fix", variant="primary", elem_id="approve-btn")
+                        reject_btn = gr.Button("Reject Fix", variant="stop", elem_id="reject-btn")
+                    with gr.Column(visible=False, elem_classes="card") as confirm_panel:
+                        confirm_html = gr.HTML()
+                        with gr.Row():
+                            confirm_btn = gr.Button("Confirm decision", variant="primary", elem_id="confirm-btn")
+                            cancel_btn = gr.Button("Cancel")
+                    gr.HTML(D.page_head("Approval history", "Every decision submitted through the gate.", "clock"))
+                    approval_history = gr.HTML(approval_history_html())
 
+                # ------------------------------------------------------------------- 6 Reports
+                with gr.Column(visible=False, elem_classes="page-col") as reports_page:
+                    gr.HTML(D.page_head("Reports", "Summary of the selected run, exports, and report files already saved on disk.", "file"))
+                    report_overview = gr.HTML(report_overview_html(None))
                     with gr.Row():
-
-                        metric_total = gr.HTML("<div class='metric'><div class='metric-value'>—</div><div class='metric-label'>Total Scenarios</div></div>")
-
-                        metric_pass = gr.HTML("<div class='metric'><div class='metric-value'>—</div><div class='metric-label'>Passed</div></div>")
-
-                        metric_fail = gr.HTML("<div class='metric'><div class='metric-value'>—</div><div class='metric-label'>Failed</div></div>")
-
-                        metric_skip = gr.HTML("<div class='metric'><div class='metric-value'>—</div><div class='metric-label'>Skipped</div></div>")
-
-                        metric_time = gr.HTML("<div class='metric'><div class='metric-value' style='font-size:16px'>—</div><div class='metric-label'>Execution Time</div></div>")
-
-                        metric_heal = gr.HTML("<div class='metric'><div class='metric-value'>—</div><div class='metric-label'>Healing Attempts</div></div>")
-
-                    with gr.Group(elem_classes="card"):
-
-                        gr.HTML("<div class='card-title'>Scenario results</div>")
-
-                        scenarios_table = gr.Dataframe(headers=["Scenario ID", "Scenario Name", "Status", "Duration", "Error Summary"], datatype=["str"]*5, interactive=False, value=[])
-
-                        scenario_info = gr.Markdown("Select a scenario row to inspect its details.")
-
-                    with gr.Row():
-
                         with gr.Column(scale=2):
-
-                            preview_btn = gr.Button("Preview Report")
-
-                            report_preview = gr.Markdown("No report preview yet.")
-
+                            with gr.Group(elem_classes="card"):
+                                gr.HTML("<div class='card-title'>Report preview</div><p class='muted'>Markdown preview of the selected run's report.</p>")
+                                preview_btn = gr.Button("Preview Report")
+                                report_preview = gr.Markdown("No report preview yet.")
                         with gr.Column(scale=1):
-
-                            export_format = gr.Dropdown(["PDF", "Word (.docx)", "Excel (.xlsx)"], label="Export format", value="PDF")
-
-                            export_btn = gr.Button("Export Report", variant="primary")
-
-                            export_status = gr.Markdown()
-
-                            export_file = gr.File(label="Download report")
-
-                with gr.Column(visible=False) as settings_page:
-
-                    gr.HTML("<div class='page-head'><h1>Settings</h1><p>Configure appearance, sandbox behavior, and your LLM connection.</p></div>")
-
+                            with gr.Group(elem_classes="card"):
+                                gr.HTML("<div class='card-title'>Export</div><p class='muted'>Download the selected run's report.</p>")
+                                export_format = gr.Dropdown(["PDF", "Word (.docx)", "Excel (.xlsx)"], label="Export format", value="PDF")
+                                export_btn = gr.Button("Export Report", variant="primary")
+                                export_status = gr.Markdown()
+                                export_file = gr.File(label="Download report")
+                    persisted_table = gr.HTML(_saved_reports_panel())
                     with gr.Group(elem_classes="card"):
+                        gr.HTML("<div class='card-title'>Open a saved report</div><p class='muted'>Reads the existing report.md / report.html. Files are shown and offered for download unchanged.</p>")
+                        persisted_pick = gr.Dropdown(H.list_report_dirs(), label="Report folder", interactive=True)
+                        persisted_open = gr.Button("Open report")
+                        persisted_md = gr.Markdown()
+                        persisted_files = gr.File(label="Report files", file_count="multiple")
 
+                # ----------------------------------------------------------------- 7 Analytics
+                with gr.Column(visible=False, elem_classes="page-col") as analytics_page:
+                    gr.HTML(D.page_head("Analytics & Monitoring", "Trends and distributions calculated from recorded runs. Empty ranges stay empty; nothing is estimated.", "chart"))
+                    with gr.Group(elem_classes="card"):
+                        with gr.Row():
+                            an_window = gr.Radio(["Last 24 hours", "Last 7 days", "Last 30 days", "All time"], value="All time", label="Time range")
+                            an_source = gr.Dropdown(["All sources", "UI runs", "Report files"], value="All sources", label="Data source")
+                            an_mock = gr.Checkbox(value=True, label="Include mock runs")
+                            an_refresh = gr.Button("Refresh", scale=0, min_width=110)
+                    analytics_out = gr.HTML(V.analytics_html("All time", "All sources", True))
+
+                # ------------------------------------------------------------------ 8 Settings
+                with gr.Column(visible=False, elem_classes="page-col") as settings_page:
+                    gr.HTML(D.page_head("Settings", "Configure appearance, mock-mode behaviour, and your LLM connection.", "settings"))
+                    with gr.Group(elem_classes="card"):
                         gr.HTML("<div class='card-title'>Appearance</div><p class='muted'>Choose a theme for this active UI session.</p>")
-
-                        settings_theme = gr.Radio(["Light", "Blue", "Dark"], value="Blue", label="Dashboard theme")
-
+                        settings_theme = gr.Radio(["Dark", "Blue", "Light"], value="Dark", label="Dashboard theme")
                     with gr.Group(elem_classes="card"):
-
-                        gr.HTML("<div class='card-title'>Execution mode</div><p class='muted'>Sandbox runs the real LangGraph workflow with simulated agents, browser and fixes (clearly labeled). Turn it off for live mode, which uses your LLM settings and never falls back to mocks.</p>")
-
-                        use_sandbox = gr.Checkbox(value=True, label="Use sandbox")
-
-
-                        mock_outcome = gr.Radio(
-                                choices=["PASS", "FAIL"],
-                                value="PASS",
-                                label="Sandbox execution outcome",
-                            )
-
-                        mock_risky = gr.Checkbox(
-                                value=False,
-                                label="Simulate risky fix",
-                            )
-
-                        mock_fixes = gr.Slider(1, 3, value=1, step=1, label="Sandbox: fixes needed before the rerun passes",
+                        gr.HTML("<div class='card-title'>Execution mode</div><p class='muted'>Mock mode runs the real LangGraph workflow with simulated agents (no real LLM or external calls), browser and fixes (clearly labeled). Turn it off for live mode, which uses your LLM settings and never falls back to mocks.</p>")
+                        use_mock = gr.Checkbox(value=True, label="Use mock mode (no real LLM)")
+                        mock_outcome = gr.Radio(choices=["PASS", "FAIL"], value="PASS", label="Mock execution outcome")
+                        mock_risky = gr.Checkbox(value=False, label="Simulate risky fix")
+                        mock_fixes = gr.Slider(1, 3, value=1, step=1, label="Mock mode: fixes needed before the rerun passes",
                                                info="Only applies when the outcome is FAIL. 1-2 heal successfully; 3 exhausts the 2-attempt limit and ends FAIL.")
-
                         show_progress = gr.Checkbox(value=True, label="Show execution progress")
-
                     with gr.Group(elem_classes="card"):
-
-                        gr.HTML("<div class='card-title'>LLM configuration</div><p class='muted'>Used by live mode only. Credentials are validated with a real provider call, kept for this UI session only, and never shown in reports, exports or messages. Sandbox runs do not call any provider.</p>")
-
+                        gr.HTML("<div class='card-title'>LLM configuration</div><p class='muted'>Used by live mode only. Credentials are validated with a real provider call, kept for this UI session only, and never shown in reports, exports or messages. Mock-mode runs do not call any provider.</p>")
                         llm_provider = gr.Dropdown(["Groq", "Gemini", "OpenRouter", "Ollama"], value="OpenRouter", label="Provider")
-
                         llm_model = gr.Textbox(label="Model name", placeholder="Enter the provider's model identifier (e.g. gemini-2.0-flash)")
-
                         llm_api_key = gr.Textbox(label="API key", type="password", placeholder="Masked and session-only; usually optional for Ollama")
-
                         save_llm_btn = gr.Button("Validate & save LLM settings")
-
                         llm_status = gr.Markdown()
 
-                        llm_state = gr.State({})
-
-        sidebar_toggle.click(toggle_sidebar, inputs=[sidebar_collapsed, nav], outputs=[sidebar_collapsed, collapse_style, nav, sidebar_toggle])
-
-        nav.change(navigate, inputs=nav, outputs=[request_page, results_page, settings_page])
-
-        settings_theme.change(set_theme, inputs=settings_theme, outputs=[theme_style, theme_state])
-
-        use_sandbox.change(session_mode_label, inputs=use_sandbox, outputs=session_mode)
-
-        show_progress.change(progress_visibility, inputs=show_progress, outputs=[progress_panel, layout_style])
-
-        save_llm_btn.click(save_llm_settings, inputs=[llm_provider, llm_model, llm_api_key], outputs=[llm_status, llm_state])
-
-
+        page_columns = [overview_page, request_page, workflow_page, results_page, approval_page, reports_page, analytics_page, settings_page]
+        assert len(page_columns) == len(PAGES)
+        page_outputs = [overview_out, wf_graph, wf_details, approval_card, approval_buttons, res_analysis, res_artifacts, res_log,
+                        report_overview, persisted_table, persisted_pick, approval_history, goto_btn]
         results_outputs = [run_state, metric_total, metric_pass, metric_fail, metric_skip, metric_time, metric_heal,
                            scenarios_table, scenario_info, run_summary, run_picker]
+        run_outputs = [request_status, workflow_session, progress, approval_card, approval_buttons, return_btn, run_history, wf_graph]
+        analytics_inputs = [an_window, an_source, an_mock]
 
-        run_outputs = [request_status, workflow_session, progress, approval_details, approval_buttons, return_btn, run_history]
+        def on_nav(page, mock):
+            return [*navigate(page), topbar_html(page, mock)]
 
-        start.click(
-            start_graph_workflow,
-            inputs=[url, requirements, browser, mode, maximum, timeout, authorization, use_sandbox,
-                    mock_outcome, mock_risky, mock_fixes, llm_state, run_history],
-            outputs=run_outputs,
-        ).then(refresh_results, inputs=[workflow_session, run_history], outputs=results_outputs)
+        def after(event):
+            return event.then(refresh_results, inputs=[workflow_session, run_history], outputs=results_outputs
+                              ).then(refresh_pages, inputs=workflow_session, outputs=page_outputs)
 
-        approve_btn.click(approve_workflow, inputs=workflow_session, outputs=run_outputs
-        ).then(refresh_results, inputs=[workflow_session, run_history], outputs=results_outputs)
+        sidebar_toggle.click(toggle_sidebar, inputs=[sidebar_collapsed, nav], outputs=[sidebar_collapsed, collapse_style, nav, sidebar_toggle])
+        nav.change(on_nav, inputs=[nav, use_mock], outputs=[*page_columns, topbar]
+                   ).then(refresh_pages, inputs=workflow_session, outputs=page_outputs
+                          ).then(V.analytics_html, inputs=analytics_inputs, outputs=analytics_out)
+        demo.load(refresh_pages, inputs=workflow_session, outputs=page_outputs)
+        ov_new.click(lambda: "Create & Run", outputs=nav)
+        ov_analytics.click(lambda: "Analytics", outputs=nav)
+        settings_theme.change(set_theme, inputs=settings_theme, outputs=[theme_style, theme_state])
+        use_mock.change(session_mode_label, inputs=use_mock, outputs=session_mode)
+        use_mock.change(lambda mock, page: topbar_html(page, mock), inputs=[use_mock, nav], outputs=topbar)
+        show_progress.change(progress_visibility, inputs=show_progress, outputs=[progress_panel, layout_style])
+        save_llm_btn.click(save_llm_settings, inputs=[llm_provider, llm_model, llm_api_key], outputs=[llm_status, llm_state])
 
-        reject_btn.click(reject_workflow, inputs=workflow_session, outputs=run_outputs
-        ).then(refresh_results, inputs=[workflow_session, run_history], outputs=results_outputs)
+        after(start.click(start_ui, inputs=[url, requirements, browser, mode, maximum, timeout, authorization, use_mock,
+                                            mock_outcome, mock_risky, mock_fixes, llm_state, run_history], outputs=run_outputs))
 
-        run_picker.input(
-            select_run, inputs=run_picker,
-            outputs=[workflow_session, request_status, progress, approval_details, approval_buttons],
-        ).then(refresh_results, inputs=[workflow_session, run_history], outputs=results_outputs)
+        # Two-step decision: the buttons only ask for confirmation; only "Confirm" calls the real resume path.
+        approve_btn.click(lambda s: ask_confirm(s, "approved"), inputs=workflow_session,
+                          outputs=[pending_decision, confirm_panel, confirm_html, approval_buttons])
+        reject_btn.click(lambda s: ask_confirm(s, "rejected"), inputs=workflow_session,
+                         outputs=[pending_decision, confirm_panel, confirm_html, approval_buttons])
+        cancel_btn.click(cancel_confirm, outputs=[pending_decision, confirm_panel, approval_buttons])
+        after(confirm_btn.click(confirmed_decision, inputs=[workflow_session, pending_decision], outputs=[*run_outputs, confirm_panel]))
 
-        return_btn.click(lambda: "Results & Reports", outputs=nav)
-
+        after(run_picker.input(select_run_ui, inputs=run_picker, outputs=[workflow_session, request_status, progress, approval_buttons]))
+        return_btn.click(lambda: "Results", outputs=nav)
+        goto_btn.click(goto_approval, inputs=workflow_session, outputs=[nav, workflow_session]
+                       ).then(refresh_pages, inputs=workflow_session, outputs=page_outputs)
         scenarios_table.select(scenario_details, inputs=run_state, outputs=scenario_info)
-
         preview_btn.click(preview_report, inputs=run_state, outputs=report_preview)
-
         export_btn.click(export_report, inputs=[run_state, export_format], outputs=[export_status, export_file])
+        persisted_open.click(open_persisted_report, inputs=persisted_pick, outputs=[persisted_md, persisted_files])
+        for control in analytics_inputs:
+            control.change(V.analytics_html, inputs=analytics_inputs, outputs=analytics_out)
+        an_refresh.click(V.analytics_html, inputs=analytics_inputs, outputs=analytics_out)
 
     return demo
 
 
-
-
-
 def launch() -> None:
-
     build_ui().launch(server_name="127.0.0.1", server_port=int(os.getenv("GRADIO_SERVER_PORT", "7860")), theme=gr.themes.Base(), css=CSS)
 
 
-
-
-
 if __name__ == "__main__":
-
     launch()
