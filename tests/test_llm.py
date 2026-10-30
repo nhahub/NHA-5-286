@@ -110,9 +110,13 @@ def test_malformed_model_string_raises_value_error(bad: str) -> None:
         parse_model_string(bad)
 
 
+def test_ollama_model_with_tag_is_accepted() -> None:
+    assert parse_model_string("ollama:qwen3:4b") == ("ollama", "qwen3:4b")
+
+
 def test_local_providers_are_refused() -> None:
-    with pytest.raises(ValueError, match="hosted models only"):
-        parse_model_string("ollama:llama3")
+    with pytest.raises(ValueError, match="not supported"):
+        parse_model_string("vllm:llama3")
 
 
 def test_get_model_requires_the_api_key() -> None:

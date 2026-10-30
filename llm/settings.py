@@ -3,7 +3,7 @@ Purpose: Session LLM settings from the UI: provider mapping, credential validati
          credential registry so agents use the model the user selected.
 Reads: UI-supplied provider/model/API key; environment keys as a fallback when no key is typed
 Writes: N/A (in-memory registry only; keys never enter graph state, reports, logs, or messages)
-Must not: log or return an API key, silently substitute another provider, or allow local models
+Must not: log or return an API key, silently substitute another provider, or silently use a provider the user did not pick
 """
 from __future__ import annotations
 
@@ -33,10 +33,9 @@ PROVIDERS: dict[str, ProviderSpec] = {
     "Groq": ProviderSpec("Groq", "groq", "langchain_groq", "GROQ_API_KEY"),
     "Gemini": ProviderSpec("Gemini", "google_genai", "langchain_google_genai", "GOOGLE_API_KEY"),
     "OpenRouter": ProviderSpec("OpenRouter", "openrouter", "langchain_openai", "OPENROUTER_API_KEY"),
-    "Ollama": ProviderSpec(
-        "Ollama", "ollama", None, None, requires_key=False,
-        unsupported_reason="Ollama runs models on the local machine; this project allows hosted models only.",
-    ),
+    "OpenAI": ProviderSpec("OpenAI", "openai", "langchain_openai", "OPENAI_API_KEY"),
+    "Anthropic": ProviderSpec("Anthropic", "anthropic", "langchain_anthropic", "ANTHROPIC_API_KEY"),
+    "Ollama": ProviderSpec("Ollama", "ollama", "langchain_ollama", None, requires_key=False),
 }
 
 

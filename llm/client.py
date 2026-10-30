@@ -63,8 +63,8 @@ PROVIDER_KEY_VARS: Mapping[str, tuple[str, ...]] = {
     "mistralai": ("MISTRAL_API_KEY",),
     "cohere": ("COHERE_API_KEY",),
 }
-# Hosted models only (architecture decision): refuse providers that run on the local machine.
-LOCAL_PROVIDERS = frozenset({"ollama", "llamacpp", "llama-cpp", "llama_cpp", "vllm", "gpt4all"})
+# Self-hosted runtimes other than Ollama stay unsupported. Ollama (local) is allowed on purpose.
+LOCAL_PROVIDERS = frozenset({"llamacpp", "llama-cpp", "llama_cpp", "vllm", "gpt4all"})
 
 RETRY_TEMPLATE = (
     "Your previous reply could not be used: {error}\n"
@@ -94,7 +94,7 @@ def parse_model_string(model_string: str) -> tuple[str, str]:
     if not sep or not provider or not name:
         raise ValueError(f"model must use the 'provider:model' format, got {model_string!r}")
     if provider in LOCAL_PROVIDERS:
-        raise ValueError(f"local or self-hosted provider '{provider}' is not allowed (hosted models only)")
+        raise ValueError(f"local or self-hosted provider '{provider}' is not supported")
     return provider, name
 
 
