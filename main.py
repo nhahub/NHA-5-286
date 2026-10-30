@@ -27,7 +27,14 @@ def run_headless(url: str | None, requirements: str) -> int:
         "scenario_cap": int(os.environ.get("SCENARIO_CAP", "3")),
     }
     state = {"test_request": request, "healing_retry_count": 0, "errors": [], "mock_mode": False}
-    result = build_graph().invoke(state, config={"configurable": {"thread_id": thread_id}})
+    graph = build_graph()
+    config = {"configurable": {"thread_id": thread_id}}
+    for update in graph.stream(state, config=config, stream_mode="updates"):
+        for node in update:
+            print(f"[{node}] done", flush=True)
+    result = graph.get_state(config).values
+    if graph.get_state(config).next:
+        result = {**result, "__interrupt__": True}
     if result.get("__interrupt__"):
         print("A proposed fix needs human approval; re-run from the UI to approve or reject it.")
         return 3
