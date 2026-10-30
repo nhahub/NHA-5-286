@@ -81,6 +81,23 @@ def route_after_intake(state: TestRunState) -> str:
 
 
 # =========================================================
+# 1b. Planner -> Codegen / Report
+# =========================================================
+
+def route_after_planner(state: TestRunState) -> str:
+
+    if _is_terminal_error(state):
+        return "report"
+
+    plan = state.get("test_plan")
+
+    if not isinstance(plan, list) or not plan:
+        return "report"
+
+    return "codegen"
+
+
+# =========================================================
 # 2. Validate -> Execute / Report
 # =========================================================
 
@@ -256,9 +273,18 @@ def route_after_fix_approval(state: TestRunState) -> str:
     if not patch_diff.strip():
         return "report"
 
-    # Explicit human approval is mandatory.
-    # Rejected, missing, or "auto" decisions cannot proceed.
-    if state.get("approval_decision") != "approved":
+    # Explicit human approval is mandatory, except for a non-risky fix
+    # in a real run that opted into auto_heal_mode="auto".
+    decision = state.get("approval_decision")
+    request = state.get("test_request") or {}
+    auto_ok = (
+        decision == "auto"
+        and not is_mock_mode(state)
+        and request.get("auto_heal_mode") == "auto"
+        and proposal.get("risky") is False
+    )
+
+    if decision != "approved" and not auto_ok:
         return "report"
 
     return "apply_fix"
@@ -282,7 +308,8 @@ def route_after_apply_fix(state: TestRunState) -> str:
 
         return "report"
 
-    # Real Apply Fix must return an error/terminal status
-    # when patch application fails.
-    # This needs an integration test once implemented.
+    # Real Apply Fix reports a failed patch with terminal_status FAIL.
+    if state.get("terminal_status") == "FAIL":
+        return "report"
+
     return "validate"

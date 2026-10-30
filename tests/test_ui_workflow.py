@@ -101,11 +101,15 @@ def test_live_mode_requires_validated_llm_and_never_mocks():
     assert "validated LLM settings" in frame[0] and frame[1] is not llm_settings
 
 
-def test_live_mode_stops_at_unimplemented_stage_without_mock():
+def test_live_mode_stops_when_planner_fails_without_mock(monkeypatch):
+    def failing_plan(*args, **kwargs):
+        raise RuntimeError("provider rejected the request SECRET-KEY-123")
+
+    monkeypatch.setattr("agents.planner.generate_plan", failing_plan)
     cfg = {"provider": "Gemini", "model": "m", "api_key": "SECRET-KEY-123", "validated": True}
     final = _last(_start(use_mock=False, llm_cfg=cfg))
     run = app.build_run(final[1]["thread_id"])
-    assert "not implemented" in final[0].lower() and "No mock" in final[0]
+    assert "ERROR" in final[0] and "LIVE" in final[0]
     assert run["stages"]["Planner"] == "Failed" and run["execution_time"] == "Not executed"
     assert "SECRET-KEY-123" not in str(final) and "SECRET-KEY-123" not in app.preview_report(run)
 
