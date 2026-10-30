@@ -40,6 +40,7 @@ EXPECTED_STATE_KEYS = {
     "terminal_status",
     "errors",
     "report_path",
+    "mock_mode",
     "sandbox_mode",
     "mock_fix_applied",
     "mock_execution_outcome",
@@ -53,11 +54,11 @@ EXPECTED_STATE_KEYS = {
 # ---------------------------------------------------------------------------
 
 def test_test_run_state_has_all_required_keys() -> None:
-    # TestRunState is a TypedDict; verify its declared annotations cover all 23 spec keys
+    # TestRunState is a TypedDict; verify its declared annotations cover every spec key.
     declared = set(TestRunState.__annotations__.keys())
     missing = EXPECTED_STATE_KEYS - declared
     assert not missing, f"TestRunState missing fields: {missing}"
-    assert len(declared) == 28
+    assert len(declared) == 29
 
 
 # ---------------------------------------------------------------------------
