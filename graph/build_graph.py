@@ -25,6 +25,7 @@ from graph.nodes import (
 
 from graph.routing import (
     route_after_intake,
+    route_after_planner,
     route_after_validate,
     route_after_execute,
     route_after_analyze,
@@ -59,7 +60,14 @@ def build_graph():
         },
     )
 
-    graph.add_edge("planner", "codegen")
+    graph.add_conditional_edges(
+        "planner",
+        route_after_planner,
+        {
+            "codegen": "codegen",
+            "report": "report",
+        },
+    )
     graph.add_edge("codegen", "validate")
 
     graph.add_conditional_edges(
