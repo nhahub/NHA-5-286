@@ -22,17 +22,28 @@ class Capped<T> {
   }
 }
 
-// Strip query strings and fragments so tokens never end up in reports.
-// Only http(s) URLs are rewritten: about:blank, data: and file: URLs have no usable origin
-// ("about:blank" would become "nullblank"), so they are kept as they are, truncated.
+// Query parameters whose values must never reach a report
+const SENSITIVE_PARAM = /token|secret|passw|auth|session|credential|jwt|signature|api[_-]?key|\bkey\b/i;
+
+// Keep the URL useful for diagnosis, but drop user info and the #fragment, and
+// redact sensitive query values. Non-http(s) URLs (about:blank, chrome-error://...)
+// are returned as they are: they carry the "page never loaded" signal.
 function safeUrl(raw: string): string {
+  let u: URL;
   try {
-    const u = new URL(raw);
-    if (u.protocol === 'http:' || u.protocol === 'https:') return `${u.origin}${u.pathname}`;
-    return raw.slice(0, MAX_TEXT);
+    u = new URL(raw);
   } catch {
     return raw.slice(0, MAX_TEXT);
   }
+  if (u.protocol === 'data:') return 'data:[omitted]';
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return raw.slice(0, MAX_TEXT);
+  u.username = '';
+  u.password = '';
+  u.hash = '';
+  for (const name of [...u.searchParams.keys()]) {
+    if (SENSITIVE_PARAM.test(name)) u.searchParams.set(name, 'REDACTED');
+  }
+  return u.toString().slice(0, MAX_TEXT);
 }
 
 export const test = base.extend<{ evidence: void }>({
