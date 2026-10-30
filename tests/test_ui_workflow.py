@@ -115,8 +115,8 @@ def test_live_mode_stops_when_planner_fails_without_mock(monkeypatch):
 
 
 def test_llm_validation_reports_problems_without_leaking_key():
-    ok, msg = llm_settings.validate_settings("Ollama", "llama3", "")
-    assert not ok and "hosted" in msg
+    ok, msg = llm_settings.validate_settings("Nope", "llama3", "")
+    assert not ok and "Unknown provider" in msg
     ok, msg = llm_settings.validate_settings("Groq", "m", "k")
     assert not ok and "langchain_groq" in msg  # package missing -> clear unavailable message
 

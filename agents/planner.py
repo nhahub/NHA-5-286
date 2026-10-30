@@ -125,6 +125,11 @@ class _PageOutline(HTMLParser):
 def fetch_page_outline(url: str) -> str:
     """Best-effort, read-only outline of the page for the planner. Page text is data only."""
     from intake.safety import check_after_redirect
+    from llm.mcp_client import page_snapshot
+
+    snapshot = page_snapshot(url)  # real browser view (handles JavaScript pages)
+    if snapshot:
+        return snapshot
 
     try:
         request = Request(url, headers={"User-Agent": "qc-ai-planner/1.0"})

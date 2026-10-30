@@ -179,9 +179,15 @@ def codegen_node(
             .get("thread_id")
         )
 
+        from llm.mcp_client import get_agent_tools, page_snapshot
+
+        if state.get("target_url"):
+            page_snapshot(state["target_url"])  # open the target so codegen's snapshot tool sees it
+
         backend = CodegenLLMBackend(
             model,
             request.get("fallback_model"),
+            tools=get_agent_tools("codegen"),
             model_factory=model_factory_for(thread_id),
         )
     except Exception as exc:
@@ -206,7 +212,17 @@ def validate_node(state: TestRunState) -> dict:
 
     from validation.validator import validate_all
 
-    return validate_all(state)
+    update = validate_all(state)
+
+    # Human Code Review is off: code that still fails validation after
+    # 2 regeneration attempts ends the run as BLOCKED, not as a pass/fail.
+    if (
+        update.get("validation_status") == "invalid"
+        and int(update.get("generation_retry_count") or 0) >= 2
+    ):
+        update["terminal_status"] = "BLOCKED"
+
+    return update
 
 
 # =========================================================
@@ -236,7 +252,7 @@ def analyze_node(
         # Selected model from Gradio Settings
         request = state.get("test_request") or {}
 
-        model = request.get("codegen_model")
+        model = request.get("healer_model") or request.get("codegen_model")
 
         if not model:
             raise ValueError(
@@ -302,7 +318,7 @@ def fix_proposal_node(
         # Selected model from Gradio Settings
         request = state.get("test_request") or {}
 
-        model = request.get("codegen_model")
+        model = request.get("healer_model") or request.get("codegen_model")
 
         if not model:
             raise ValueError(

@@ -1181,7 +1181,7 @@ def build_ui() -> gr.Blocks:
                         show_progress = gr.Checkbox(value=True, label="Show execution progress")
                     with gr.Group(elem_classes="card"):
                         gr.HTML("<div class='card-title'>LLM configuration</div><p class='muted'>Used by live mode only. Credentials are validated with a real provider call, kept for this UI session only, and never shown in reports, exports or messages. Mock-mode runs do not call any provider.</p>")
-                        llm_provider = gr.Dropdown(["Groq", "Gemini", "OpenRouter", "Ollama"], value="OpenRouter", label="Provider")
+                        llm_provider = gr.Dropdown(["Groq", "Gemini", "OpenRouter", "OpenAI", "Anthropic", "Ollama"], value="OpenRouter", label="Provider")
                         llm_model = gr.Textbox(label="Model name", placeholder="Enter the provider's model identifier (e.g. gemini-2.0-flash)")
                         llm_api_key = gr.Textbox(label="API key", type="password", placeholder="Masked and session-only; usually optional for Ollama")
                         save_llm_btn = gr.Button("Validate & save LLM settings")
