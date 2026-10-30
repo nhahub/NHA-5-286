@@ -170,6 +170,22 @@ def real_generate_plan(request, *, model, model_factory, target_url=None):
             )
         ),
     ]
+    from llm.run_auth import auth_prompt_info
+
+    auth = auth_prompt_info(request)
+    if auth["required"]:
+        auth_line = (f"Authentication: required (method: {auth['method']}). The credentials are supplied to the tests "
+                     "at run time; plan the authenticated journeys the requirements ask for and never write any "
+                     "credential value.")
+    elif auth["skipped"]:
+        auth_line = ("Authentication: skipped on purpose. The user is testing the login page itself and no credentials "
+                     "are provided; the site is NOT confirmed as authenticated. Plan only logged-out behaviour of the "
+                     "page (form fields, validation, error messages, failed logins). Never plan steps that need a "
+                     "signed-in user and never invent credentials.")
+    else:
+        auth_line = ("Authentication: not required. Treat the site as public: do not plan a login step, and do not "
+                     "assume a login page exists.")
+    messages[1] = HumanMessage(content=auth_line + "\n\n" + str(messages[1].content))
     llm = model_factory(model).with_structured_output(_PlannerOutput)
 
     import time

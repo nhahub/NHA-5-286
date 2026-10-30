@@ -14,7 +14,7 @@
 - Set `risky: true` whenever:
   - The failure subtype is `ASSERTION` (changing an expected value may hide a real bug)
   - The change is not a pure selector or timing fix
-- Keep the file's first import line and every rule the validator enforces (no `waitForTimeout`, no `any`, credentials only from `process.env.TEST_USERNAME` / `TEST_PASSWORD`, no custom timeouts).
+- Keep the file's first import line and every rule the validator enforces (no `waitForTimeout`, no `any`, credentials only from the `process.env.TEST_*` variables the spec already reads, and never add credential use to a spec that has none, no custom timeouts).
 - Respond in **English** only.
 
 ## Available tools

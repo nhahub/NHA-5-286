@@ -22,6 +22,8 @@ from ui.design import CSS, THEMES, theme_css, request_layout_css
 from llm.settings import (
     LLMSettings, check_static, effective_key, register_run_credentials, release_run_credentials, validate_settings,
 )
+from llm.run_auth import AuthConfig, build_auth, public_request_fields, register_run_auth, release_run_auth
+from preflight import run_preflight
 
 
 
@@ -412,9 +414,17 @@ def _config(thread_id: str) -> dict:
     return {"configurable": {"thread_id": thread_id}}
 
 
+def release_run_secrets(thread_id: str) -> None:
+    """Drop everything secret held for a run: the LLM key and the application login."""
+    release_run_credentials(thread_id)
+    release_run_auth(thread_id)
+
+
 def _scrub(text: object, info: dict | None) -> str:
-    """Remove any API key from a message before it reaches the UI."""
-    text = str(text)
+    """Remove any API key or application credential from a message before it reaches the UI."""
+    from llm.errors import redact
+
+    text = redact(str(text))
     key = (info or {}).get("secret") or ""
     return text.replace(key, "***") if key else text
 
@@ -466,6 +476,13 @@ def _advance(thread_id: str, graph_input):
                     tracker.finish(node, update)
                     info["trail"].append(_trail_label(node, update))
             yield
+    except GeneratorExit:  # the client disconnected or the event was cancelled mid-run
+        info["error"] = "Run cancelled."
+        tracker.fail_running("cancelled")
+        info["ended"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        release_run_secrets(thread_id)
+        info["secret"] = ""
+        raise
     except NotImplementedError as exc:
         stage = next((s for s, st in tracker.status.items() if st in tracker.ACTIVE), "a stage")
         info["error"] = (f"The live workflow stopped at **{stage}**: {_scrub(exc, info)} "
@@ -480,7 +497,7 @@ def _advance(thread_id: str, graph_input):
     if not info["paused"]:
         tracker.finalize()
         info["ended"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        release_run_credentials(thread_id)
+        release_run_secrets(thread_id)
         info["secret"] = ""
     _persist(thread_id)
 
@@ -565,7 +582,8 @@ def _view(thread_id: str | None, status: str, session=NOOP, history=NOOP):
 
 
 def start_graph_workflow(url, requirements, browser, mode, maximum, timeout, authorization, use_mock,
-                         mock_outcome, mock_risky, mock_fixes=1, llm_cfg=None, history=None):
+                         mock_outcome, mock_risky, mock_fixes=1, llm_cfg=None, history=None,
+                         auth_username="", auth_password="", skip_auth=False):
     """Start the LangGraph workflow and stream real node progress to the UI."""
     history = list(history or [])
     problems = []
@@ -577,6 +595,9 @@ def start_graph_workflow(url, requirements, browser, mode, maximum, timeout, aut
         problems.append("Describe at least one test requirement.")
     if not authorization:
         problems.append("Confirm that you are authorized to test this application.")
+    username, password, skip_auth = (auth_username or "").strip(), auth_password or "", bool(skip_auth)
+    if bool(username) != bool(password) and not skip_auth:
+        problems.append("Enter both a username and a password, or leave both empty.")
     if problems:
         yield _view(None, "### Please correct these items\n" + "\n".join(f"- {p}" for p in problems))
         return
@@ -597,6 +618,26 @@ def start_graph_workflow(url, requirements, browser, mode, maximum, timeout, aut
         model_string, llm_public = settings.model_string, settings.public()
 
     thread_id = str(uuid4())
+    auth, auth_skipped = AuthConfig(), False
+    if not use_mock:
+        # Preflight: deterministic checks BEFORE the workflow, so a wrong URL or login never costs LLM tokens.
+        candidate = AuthConfig()
+        try:
+            if username and password and not skip_auth:
+                candidate = build_auth("username_password", {"username": username, "password": password})
+                register_run_auth(thread_id, candidate)  # lets redact() scrub the values while Preflight runs
+            yield _view(None, "### Preflight\nChecking that the website is reachable and whether it needs a login…")
+            result = run_preflight(url.strip(), username if candidate.required else "",
+                                   password if candidate.required else "", skip_auth=skip_auth)
+        except BaseException:
+            release_run_auth(thread_id)
+            raise
+        if not (result.passed and result.auth_required):
+            release_run_auth(thread_id)  # failed, inconclusive, public or skipped: nothing to keep
+        if not result.passed:
+            yield _view(None, result.markdown())
+            return
+        auth, auth_skipped = (candidate if result.auth_required else AuthConfig()), result.auth_skipped
     info = {"thread_id": thread_id, "tracker": StageTracker(), "trail": [], "error": None, "paused": False,
             "mock": bool(use_mock), "started": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "ended": None, "lock": threading.Lock(), "llm": llm_public,
@@ -609,7 +650,8 @@ def start_graph_workflow(url, requirements, browser, mode, maximum, timeout, aut
     session = {"thread_id": thread_id, "waiting_for_approval": False}
 
     request = {"url": url.strip(), "requirements": requirements.strip(), "scenario_cap": int(maximum),
-               "authorization": bool(authorization)}
+               "authorization": bool(authorization),
+               **public_request_fields(auth, auth_skipped)}  # flags only, never the values
     initial_state = {"test_request": request, "healing_retry_count": 0, "errors": []}
     if use_mock:
         initial_state.update(mock_mode=True, mock_execution_outcome=mock_outcome, mock_risky=bool(mock_risky),
@@ -618,13 +660,18 @@ def start_graph_workflow(url, requirements, browser, mode, maximum, timeout, aut
         request.update(planner_model=model_string, codegen_model=model_string, healer_model=model_string)
         initial_state["mock_mode"] = False
         register_run_credentials(thread_id, settings)
+        register_run_auth(thread_id, auth)
 
-    info["tracker"].begin("intake")
-    yield _view(thread_id, "Workflow running…", session, history)
-    for _ in _advance(thread_id, initial_state):
+    try:
+        info["tracker"].begin("intake")
         yield _view(thread_id, "Workflow running…", session, history)
-    session["waiting_for_approval"] = bool(info["paused"])
-    yield _view(thread_id, _status_text(thread_id), session, history)
+        for _ in _advance(thread_id, initial_state):
+            yield _view(thread_id, "Workflow running…", session, history)
+        session["waiting_for_approval"] = bool(info["paused"])
+        yield _view(thread_id, _status_text(thread_id), session, history)
+    except BaseException:
+        release_run_secrets(thread_id)  # cancellation or an unexpected error must never leave secrets behind
+        raise
 
 
 def resume_graph_workflow(session, decision):
@@ -648,6 +695,9 @@ def resume_graph_workflow(session, decision):
             yield _view(thread_id, "Workflow running…", session)
         session = {**session, "waiting_for_approval": bool(info["paused"])}
         yield _view(thread_id, _status_text(thread_id), session)
+    except BaseException:
+        release_run_secrets(thread_id)  # cancelled mid-resume: the run is abandoned, so its secrets go with it
+        raise
     finally:
         info["lock"].release()
 
@@ -1092,6 +1142,11 @@ def build_ui() -> gr.Blocks:
                                     maximum = gr.Slider(1, 5, value=3, step=1, label="Maximum number of scenarios")
                                     mode = gr.Radio(["Headless", "Visible Browser"], value="Headless", label="Execution mode", elem_id="execution-mode-control")
                                     timeout = gr.Slider(10, 180, value=30, step=5, label="Timeout (seconds)")
+                                with gr.Row(equal_height=False):
+                                    auth_username = gr.Textbox(label="Username (optional)", info="Only needed if the website asks for a login.")
+                                    auth_password = gr.Textbox(label="Password (optional)", type="password", info="Kept in memory for this run only.")
+                                skip_auth = gr.Checkbox(label="I'm testing the login page itself (skip authentication validation)",
+                                                        info="The URL must still be reachable. No login is attempted and the site is not treated as signed in.")
                                 authorization = gr.Checkbox(label="I am authorized to test this application.")
                                 start = gr.Button("Start Testing", variant="primary", size="lg", elem_id="start-testing")
                                 request_status = gr.Markdown()
@@ -1217,6 +1272,7 @@ def build_ui() -> gr.Blocks:
             with _RUNS_LOCK:
                 for tid in [t for t, info in RUNS.items() if info.get("ended") or info.get("paused") or info.get("error")]:
                     RUNS.pop(tid, None)
+                    release_run_secrets(tid)
             H.clear_history((EXPORT_DIR,))
             return None, [], gr.update(visible=False), "History cleared."
 
@@ -1249,7 +1305,8 @@ def build_ui() -> gr.Blocks:
         save_llm_btn.click(save_llm_settings, inputs=[llm_provider, llm_model, llm_api_key], outputs=[llm_status, llm_state])
 
         after(start.click(start_ui, inputs=[url, requirements, browser, mode, maximum, timeout, authorization, use_mock,
-                                            mock_outcome, mock_risky, mock_fixes, llm_state, run_history], outputs=run_outputs))
+                                            mock_outcome, mock_risky, mock_fixes, llm_state, run_history,
+                                            auth_username, auth_password, skip_auth], outputs=run_outputs))
 
         # Two-step decision: the buttons only ask for confirmation; only "Confirm" calls the real resume path.
         approve_btn.click(lambda s: ask_confirm(s, "approved"), inputs=workflow_session,

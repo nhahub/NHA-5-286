@@ -56,7 +56,10 @@ def _blocked(state: TestRunState, message: str) -> dict:
     }
 
 
-def intake_node(state: TestRunState) -> dict:
+def intake_node(
+    state: TestRunState,
+    config: RunnableConfig | None = None,
+) -> dict:
     from intake.safety import is_safe_url
     from intake.url_resolver import resolve_url
 
@@ -91,6 +94,16 @@ def intake_node(state: TestRunState) -> dict:
                     "No usable model selected; configure one in Settings.",
                 ],
             }
+
+        if request.get("auth_required"):
+            from llm.run_auth import get_run_auth
+
+            thread_id = ((config or {}).get("configurable") or {}).get("thread_id")
+            if get_run_auth(thread_id) is None:
+                return _blocked(
+                    state,
+                    "BLOCKED: authentication is required but no credentials were provided for this run.",
+                )
 
     return {
         "run_id": state.get("run_id") or str(uuid4()),
@@ -230,10 +243,14 @@ def validate_node(state: TestRunState) -> dict:
 # =========================================================
 
 
-def execute_node(state: TestRunState) -> dict:
+def execute_node(
+    state: TestRunState,
+    config: RunnableConfig | None = None,
+) -> dict:
     if is_mock_mode(state):
         return mock_run_execute(state)
-    return run_execute(state)
+    thread_id = ((config or {}).get("configurable") or {}).get("thread_id")
+    return run_execute(state, thread_id=thread_id)
 
 
 # =========================================================

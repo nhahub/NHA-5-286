@@ -11,6 +11,7 @@ A JSON object with:
 - `previous_code`: the file from the last attempt, or null
 - `validation_errors`: strings like `[rule] file:line message` from the last attempt, or []
 - `reviewer_note`: guidance from a human reviewer, or null
+- `authentication`: `required` (bool), `method`, and `env_vars` (the environment variable names that hold the credentials)
 
 ## Output
 
@@ -26,11 +27,16 @@ Return one JSON object and nothing else:
 2. Exactly one `test('<scenario.name>', async ({ page }) => { ... })` call. No `test.describe`, `test.only`, `test.skip`, `test.fixme`.
 3. No `page.waitForTimeout`. Wait through web-first assertions (`await expect(locator)...`).
 4. No `any` type.
-5. Credentials come only from `process.env.TEST_USERNAME` and `process.env.TEST_PASSWORD`. Never `process.env.USERNAME` / `PASSWORD`. Never a literal password, and never invent credentials. Guard them:
+5. Authentication follows the input's `authentication` object.
+   - `skipped` is true: authentication was deliberately not validated and no credentials exist. The login page itself is under test; never assume a signed-in session, and do not use credentials of any kind. A scenario that submits the login form uses clearly fake input values written in the test (never a real-looking password for a real account).
+   - `required` is false: the site is public. Do not log in, do not assume a login page, and do not reference any credential variable (`process.env.TEST_*`). Test only what is reachable without signing in.
+   - `required` is true: read each credential only from the variables listed in `env_vars` (for `username_password`: `process.env.TEST_USERNAME` and `process.env.TEST_PASSWORD`), never from `process.env.USERNAME` / `PASSWORD`, never a literal, never invented. Guard them:
 
-       const username = process.env.TEST_USERNAME;
-       const password = process.env.TEST_PASSWORD;
-       if (!username || !password) throw new Error('TEST_USERNAME and TEST_PASSWORD must be set');
+         const username = process.env.TEST_USERNAME;
+         const password = process.env.TEST_PASSWORD;
+         if (!username || !password) throw new Error('TEST_USERNAME and TEST_PASSWORD must be set');
+
+     Use them for scenarios that need a signed-in user. A scenario about invalid credentials uses a wrong value derived from them, never a literal password.
 
 6. Use only the public Playwright API.
 7. Do not use `page.evaluate`, `evaluateHandle` or `$eval`. Click, type and set values with locator actions (`click`, `fill`, `check`, `selectOption`, `press`).

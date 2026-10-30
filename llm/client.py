@@ -133,16 +133,23 @@ class FallbackChain:
     def run(self, attempt: Callable[[str, BaseChatModel], T]) -> tuple[T, str]:
         """Try each model in order; return (result, model string actually used)."""
         failures: list[str] = []
+        only_bad_output = True
         for name, model in self._candidates:
             try:
                 return attempt(name, model), name
             except BudgetExceededError:
                 raise  # a spent budget is a run-level condition; another model will not fix it
             except Exception as exc:  # unavailable model, auth error, or invalid output after its retry
+                only_bad_output = only_bad_output and isinstance(exc, OutputParseError)
                 safe = redact(str(exc))  # provider errors can echo part of an API key
                 logger.warning("model %s failed (%s); trying next candidate", name, safe)
                 failures.append(f"{name}: {safe}")
-        raise LLMUnavailableError("all models failed: " + " | ".join(failures))
+        message = "all models failed: " + " | ".join(failures)
+        if only_bad_output:
+            # The models answered but not in the required shape: that is one bad request, not an unavailable
+            # provider, so only this call fails and the caller can carry on with its other work.
+            raise OutputParseError(message)
+        raise LLMUnavailableError(message)
 
 
 def get_model_with_fallback(
@@ -263,6 +270,23 @@ def extract_json_object(text: str) -> dict[str, Any]:
     raise OutputParseError("the reply contains no JSON object")
 
 
+_CODE_FENCE = re.compile(r"```(?:typescript|ts|javascript|js)?\s*\n(?P<body>.*?)```", re.S)
+
+
+def _code_without_json(text: str, user_payload: str) -> CodegenResult | None:
+    """Some models return the Playwright file directly (fenced or bare) instead of {"scenario_id", "code"}.
+    The scenario id is known from the request, so the file can be used as is; the validator still checks it."""
+    try:
+        scenario_id = str(json.loads(user_payload)["scenario"]["id"])
+    except (ValueError, KeyError, TypeError):
+        return None
+    fenced = _CODE_FENCE.search(text)
+    code = (fenced["body"] if fenced else text).strip()
+    if "import" not in code or "test(" not in code:
+        return None
+    return CodegenResult(scenario_id=scenario_id, code=code)
+
+
 def parse_codegen_output(text: str) -> CodegenResult:
     data = extract_json_object(text)
     try:
@@ -344,9 +368,13 @@ class CodegenLLMBackend:
         messages: list[BaseMessage] = [SystemMessage(content=system_prompt), HumanMessage(content=user_payload)]
         for attempt in range(MAX_PARSE_RETRIES + 1):
             reply = self._complete(name, tooled, model, messages)
+            text = message_text(reply)
             try:
-                return parse_codegen_output(message_text(reply))
+                return parse_codegen_output(text)
             except OutputParseError as exc:
+                plain = _code_without_json(text, user_payload)
+                if plain is not None:  # the model answered with the spec itself instead of the JSON wrapper
+                    return plain
                 logger.warning("codegen output from %s rejected (attempt %d): %s", name, attempt + 1, exc)
                 if attempt == MAX_PARSE_RETRIES:
                     raise

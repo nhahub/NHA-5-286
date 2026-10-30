@@ -69,6 +69,11 @@ def redact(text: str) -> str:
         if "API_KEY" in name.upper() and len(value) >= 8:
             text = text.replace(value, "[redacted]")
 
+    # Redact credentials the user supplied for the application under test (active runs only).
+    from llm.run_auth import scrub
+
+    text = scrub(text)
+
     # Redact recognizable secret patterns.
     return _SECRET.sub("[redacted]", text)
 
