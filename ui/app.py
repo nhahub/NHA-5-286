@@ -1044,6 +1044,12 @@ def build_ui() -> gr.Blocks:
                 with gr.Row(elem_classes="topbar"):
                     topbar = gr.HTML(topbar_html("Workflow", True))
                     goto_btn = gr.Button("Review pending approval", visible=False, variant="primary", size="sm", scale=0)
+                    clear_btn = gr.Button("Clear history", size="sm", scale=0, elem_id="clear-history-btn")
+                with gr.Row(visible=False, elem_classes="card", elem_id="clear-confirm") as clear_confirm:
+                    gr.HTML("<b>Delete all history?</b> This removes the run log, saved report files and exported reports. "
+                            "Test specs and other run artifacts are kept. It cannot be undone.")
+                    clear_yes = gr.Button("Yes, delete history", variant="stop", size="sm", scale=0, elem_id="clear-yes")
+                    clear_no = gr.Button("Cancel", size="sm", scale=0, elem_id="clear-no")
 
                 # ------------------------------------------------------------------ 1 Overview
                 with gr.Column(visible=False, elem_classes="page-col") as overview_page:
@@ -1073,7 +1079,7 @@ def build_ui() -> gr.Blocks:
                                 authorization = gr.Checkbox(label="I am authorized to test this application.")
                                 start = gr.Button("Start Testing", variant="primary", size="lg", elem_id="start-testing")
                                 request_status = gr.Markdown()
-                                return_btn = gr.Button("Return to Results", visible=False, elem_id="return-to-results")
+                                return_btn = gr.Button("Open report", visible=False, elem_id="return-to-results")
                         with gr.Column(visible=True, elem_id="progress-card-column") as progress_panel:
                             with gr.Group(elem_classes="card"):
                                 gr.HTML("<div class='card-title'>Execution progress</div><p class='muted'>Stages update live from the workflow nodes that actually execute, including approval, healing and reruns.</p>")
@@ -1086,32 +1092,6 @@ def build_ui() -> gr.Blocks:
                     with gr.Group(elem_classes="card"):
                         wf_graph = gr.HTML(workflow_graph_html(None))
                     wf_details = gr.HTML(workflow_details_html(None))
-
-                # ------------------------------------------------------------------- 4 Results
-                with gr.Column(visible=False, elem_classes="page-col") as results_page:
-                    gr.HTML(D.page_head("Results", "Execution results, failure analysis, evidence and logs for the selected run.", "results"))
-                    with gr.Group(elem_classes="card"):
-                        run_picker = gr.Dropdown([], label="Run", info="Each run keeps its own workflow state.", interactive=True)
-                        run_summary = gr.Markdown("No run yet. Start a test from **Create & Run**.")
-                    with gr.Row(elem_classes="kpi-row"):
-                        metric_total = gr.HTML(metric_card("—", "Total Scenarios"))
-                        metric_pass = gr.HTML(metric_card("—", "Passed"))
-                        metric_fail = gr.HTML(metric_card("—", "Failed"))
-                        metric_skip = gr.HTML(metric_card("—", "Skipped"))
-                        metric_time = gr.HTML(metric_card("—", "Execution Time"))
-                        metric_heal = gr.HTML(metric_card("—", "Healing Attempts"))
-                    with gr.Tabs():
-                        with gr.Tab("Scenarios"):
-                            with gr.Group(elem_classes="card"):
-                                scenarios_table = gr.Dataframe(headers=["Scenario ID", "Scenario Name", "Status", "Duration", "Error Summary"],
-                                                               datatype=["str"] * 5, interactive=False, value=[])
-                                scenario_info = gr.Markdown("Select a scenario row to inspect its details.")
-                        with gr.Tab("Failure analysis"):
-                            res_analysis = gr.HTML(results_extras_html(None)[0])
-                        with gr.Tab("Artifacts & evidence"):
-                            res_artifacts = gr.HTML(results_extras_html(None)[1])
-                        with gr.Tab("Execution log"):
-                            res_log = gr.HTML(results_extras_html(None)[2])
 
                 # ------------------------------------------------------------ 5 Fix & Approval
                 with gr.Column(visible=False, elem_classes="page-col") as approval_page:
@@ -1128,30 +1108,49 @@ def build_ui() -> gr.Blocks:
                     gr.HTML(D.page_head("Approval history", "Every decision submitted through the gate.", "clock"))
                     approval_history = gr.HTML(approval_history_html())
 
-                # ------------------------------------------------------------------- 6 Reports
+                # ------------------------------------------------------------------- Reports (results + exports)
                 with gr.Column(visible=False, elem_classes="page-col") as reports_page:
-                    gr.HTML(D.page_head("Reports", "Summary of the selected run, exports, and report files already saved on disk.", "file"))
-                    report_overview = gr.HTML(report_overview_html(None))
-                    with gr.Row():
-                        with gr.Column(scale=2):
-                            with gr.Group(elem_classes="card"):
-                                gr.HTML("<div class='card-title'>Report preview</div><p class='muted'>Markdown preview of the selected run's report.</p>")
-                                preview_btn = gr.Button("Preview Report")
-                                report_preview = gr.Markdown("No report preview yet.")
-                        with gr.Column(scale=1):
-                            with gr.Group(elem_classes="card"):
-                                gr.HTML("<div class='card-title'>Export</div><p class='muted'>Download the selected run's report.</p>")
-                                export_format = gr.Dropdown(["PDF", "Word (.docx)", "Excel (.xlsx)"], label="Export format", value="PDF")
-                                export_btn = gr.Button("Export Report", variant="primary")
-                                export_status = gr.Markdown()
-                                export_file = gr.File(label="Download report")
-                    persisted_table = gr.HTML(_saved_reports_panel())
+                    gr.HTML(D.page_head("Reports", "Results, failure analysis and exports for every test run. Pick a run, read it, export it.", "file"))
                     with gr.Group(elem_classes="card"):
-                        gr.HTML("<div class='card-title'>Open a saved report</div><p class='muted'>Reads the existing report.md / report.html. Files are shown and offered for download unchanged.</p>")
-                        persisted_pick = gr.Dropdown(H.list_report_dirs(), label="Report folder", interactive=True)
-                        persisted_open = gr.Button("Open report")
-                        persisted_md = gr.Markdown()
-                        persisted_files = gr.File(label="Report files", file_count="multiple")
+                        with gr.Row(equal_height=False):
+                            run_picker = gr.Dropdown([], label="Run", info="Each run keeps its own results.", interactive=True, scale=4)
+                            export_format = gr.Dropdown(["PDF", "Word (.docx)", "Excel (.xlsx)"], label="Export as", value="PDF", scale=1)
+                            export_btn = gr.Button("Export", variant="primary", scale=0, min_width=110)
+                        run_summary = gr.Markdown("No run yet. Start a test from **Create & Run**.")
+                        export_status = gr.Markdown()
+                        export_file = gr.File(label="Download report", visible=False)
+                    with gr.Row(elem_classes="kpi-row"):
+                        metric_total = gr.HTML(metric_card("—", "Total Scenarios"))
+                        metric_pass = gr.HTML(metric_card("—", "Passed"))
+                        metric_fail = gr.HTML(metric_card("—", "Failed"))
+                        metric_skip = gr.HTML(metric_card("—", "Skipped"))
+                        metric_time = gr.HTML(metric_card("—", "Execution Time"))
+                        metric_heal = gr.HTML(metric_card("—", "Healing Attempts"))
+                    with gr.Tabs():
+                        with gr.Tab("Summary"):
+                            report_overview = gr.HTML(report_overview_html(None))
+                        with gr.Tab("Scenarios"):
+                            with gr.Group(elem_classes="card"):
+                                scenarios_table = gr.Dataframe(headers=["Scenario ID", "Scenario Name", "Status", "Duration", "Error Summary"],
+                                                               datatype=["str"] * 5, interactive=False, value=[])
+                                scenario_info = gr.Markdown("Select a scenario row to inspect its details.")
+                        with gr.Tab("Failure analysis"):
+                            res_analysis = gr.HTML(results_extras_html(None)[0])
+                        with gr.Tab("Evidence"):
+                            res_artifacts = gr.HTML(results_extras_html(None)[1])
+                        with gr.Tab("Execution log"):
+                            res_log = gr.HTML(results_extras_html(None)[2])
+                        with gr.Tab("Preview"):
+                            with gr.Group(elem_classes="card"):
+                                preview_btn = gr.Button("Preview report")
+                                report_preview = gr.Markdown("No report preview yet.")
+                        with gr.Tab("Saved reports"):
+                            persisted_table = gr.HTML(_saved_reports_panel())
+                            with gr.Group(elem_classes="card"):
+                                persisted_pick = gr.Dropdown(H.list_report_dirs(), label="Open a saved report", interactive=True)
+                                persisted_open = gr.Button("Open")
+                                persisted_md = gr.Markdown()
+                                persisted_files = gr.File(label="Report files", file_count="multiple")
 
                 # ----------------------------------------------------------------- 7 Analytics
                 with gr.Column(visible=False, elem_classes="page-col") as analytics_page:
@@ -1186,7 +1185,7 @@ def build_ui() -> gr.Blocks:
                         save_llm_btn = gr.Button("Validate & save LLM settings")
                         llm_status = gr.Markdown()
 
-        page_columns = [workflow_page, request_page, results_page, approval_page, reports_page, overview_page, analytics_page, settings_page]
+        page_columns = [workflow_page, overview_page, request_page, approval_page, reports_page, analytics_page, settings_page]
         assert len(page_columns) == len(PAGES)
         page_outputs = [overview_out, wf_graph, wf_details, approval_card, approval_buttons, res_analysis, res_artifacts, res_log,
                         report_overview, persisted_table, persisted_pick, approval_history, goto_btn]
@@ -1194,6 +1193,23 @@ def build_ui() -> gr.Blocks:
                            scenarios_table, scenario_info, run_summary, run_picker]
         run_outputs = [request_status, workflow_session, progress, approval_card, approval_buttons, return_btn, run_history, wf_graph]
         analytics_inputs = [an_window, an_source, an_mock]
+
+        def ask_clear():
+            return gr.update(visible=True)
+
+        def do_clear(history):
+            with _RUNS_LOCK:
+                for tid in [t for t, info in RUNS.items() if info.get("ended") or info.get("paused") or info.get("error")]:
+                    RUNS.pop(tid, None)
+            H.clear_history((EXPORT_DIR,))
+            return None, [], gr.update(visible=False), "History cleared."
+
+        def nav_after_decision(session):
+            """Once the workflow has resumed and finished, show the report; if another fix awaits approval, stay."""
+            thread_id = _tid(session)
+            if thread_id and not _pending_interrupt(thread_id):
+                return "Reports"
+            return NOOP
 
         def on_nav(page, mock):
             return [*navigate(page), topbar_html(page, mock)]
@@ -1224,15 +1240,24 @@ def build_ui() -> gr.Blocks:
         reject_btn.click(lambda s: ask_confirm(s, "rejected"), inputs=workflow_session,
                          outputs=[pending_decision, confirm_panel, confirm_html, approval_buttons])
         cancel_btn.click(cancel_confirm, outputs=[pending_decision, confirm_panel, approval_buttons])
-        after(confirm_btn.click(confirmed_decision, inputs=[workflow_session, pending_decision], outputs=[*run_outputs, confirm_panel]))
+        decided = confirm_btn.click(confirmed_decision, inputs=[workflow_session, pending_decision], outputs=[*run_outputs, confirm_panel])
+        after(decided.then(nav_after_decision, inputs=workflow_session, outputs=nav))
+
+        clear_btn.click(ask_clear, outputs=clear_confirm)
+        clear_no.click(lambda: gr.update(visible=False), outputs=clear_confirm)
+        after(clear_yes.click(do_clear, inputs=run_history, outputs=[workflow_session, run_history, clear_confirm, request_status]))
 
         after(run_picker.input(select_run_ui, inputs=run_picker, outputs=[workflow_session, request_status, progress, approval_buttons]))
-        return_btn.click(lambda: "Results", outputs=nav)
+        return_btn.click(lambda: "Reports", outputs=nav)
         goto_btn.click(goto_approval, inputs=workflow_session, outputs=[nav, workflow_session]
                        ).then(refresh_pages, inputs=workflow_session, outputs=page_outputs)
         scenarios_table.select(scenario_details, inputs=run_state, outputs=scenario_info)
         preview_btn.click(preview_report, inputs=run_state, outputs=report_preview)
-        export_btn.click(export_report, inputs=[run_state, export_format], outputs=[export_status, export_file])
+        def export_ui(run, fmt):
+            status, path = export_report(run, fmt)
+            return status, gr.update(value=path, visible=bool(path))
+
+        export_btn.click(export_ui, inputs=[run_state, export_format], outputs=[export_status, export_file])
         persisted_open.click(open_persisted_report, inputs=persisted_pick, outputs=[persisted_md, persisted_files])
         for control in analytics_inputs:
             control.change(V.analytics_html, inputs=analytics_inputs, outputs=analytics_out)

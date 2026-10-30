@@ -220,18 +220,23 @@ class RunBudget:
 
 
 # --------------------------------------------------------------------------- parsing
+def _drop_reasoning(text: str) -> str:
+    """Reasoning models (e.g. qwen3) may emit their thinking before a closing </think>; keep only the answer."""
+    return text.rsplit("</think>", 1)[-1].lstrip() if "</think>" in text else text
+
+
 def message_text(message: BaseMessage) -> str:
     """Plain text of a reply; some providers return a list of content blocks."""
     content = message.content
     if isinstance(content, str):
-        return content
+        return _drop_reasoning(content)
     parts: list[str] = []
     for block in content:
         if isinstance(block, str):
             parts.append(block)
         elif isinstance(block, Mapping) and block.get("type") == "text":
             parts.append(str(block.get("text", "")))
-    return "".join(parts)
+    return _drop_reasoning("".join(parts))
 
 
 _FENCE = re.compile(r"^```(?:json)?[ \t]*\n(?P<body>.*?)\n```[ \t]*$", re.S)

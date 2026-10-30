@@ -33,7 +33,7 @@ def recent_runs_table(records: list[dict], limit: int = 8) -> str:
                      f"{r.get('passed', 0)} / {r.get('failed', 0)} / {r.get('skipped', 0)}",
                      "UI run" if r.get("source") == "ui" else "Report file"])
     if not rows:
-        return D.empty("No runs recorded yet", "Start a test from Create & Run. Results appear here as soon as a run is recorded.", "inbox")
+        return D.empty("No runs recorded yet", "Start a test from Create & Run. Runs appear here as soon as they are recorded.", "inbox")
     return D.table(["Started", "Status", "Mode", "Application", "Pass / Fail / Other", "Source"], rows, raw_cols=(1, 2))
 
 
@@ -48,20 +48,11 @@ def overview_html(records: list[dict], pending: int) -> str:
         D.kpi("Awaiting approval", str(pending), "human decision required" if pending else "nothing pending",
               "warn" if pending else "", "shield"),
     )
-    latest = max(records, key=lambda r: r.get("started") or "", default=None)
-    if latest:
-        facts = (f"<dl class='kv'><dt>Status</dt><dd>{D.badge(latest.get('status'))} {_mode_badge(latest)}</dd>"
-                 f"<dt>Application</dt><dd>{D.esc(latest.get('url') or '—')}</dd><dt>Started</dt><dd>{_fmt_time(latest.get('started'))}</dd>"
-                 f"<dt>Scenarios</dt><dd>{latest.get('total', 0)} total · {latest.get('passed', 0)} passed · {latest.get('failed', 0)} failed</dd>"
-                 f"<dt>Healing attempts</dt><dd>{latest.get('healing', 0)}</dd><dt>Run ID</dt><dd class='mono'>{D.esc(str(latest.get('run_id')))}</dd></dl>")
-    else:
-        facts = D.empty("No results yet", "The latest result will be shown here.", "inbox")
     note = ""
     if s["mock_runs"]:
         note = D.note(f"{s['mock_runs']} of these runs were <b>mock-mode</b> simulations (no real LLM or browser). They are labelled "
                       "<i>Mock</i> everywhere and are not real test results.", "violet")
-    return (f"<div class='stack'>{kpis}{note}<div class='grid-3'>{D.panel('Recent activity', recent_runs_table(records), 'Most recent runs, newest first')}"
-            f"{D.panel('Latest result', facts)}</div></div>")
+    return (f"<div class='stack'>{kpis}{note}{D.panel('Recent activity', recent_runs_table(records), 'Most recent runs, newest first. Open Reports for full results.')}</div>")
 
 
 def analytics_html(window: str, source: str, include_mock: bool) -> str:

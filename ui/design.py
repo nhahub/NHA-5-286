@@ -52,10 +52,9 @@ def _mask(name: str) -> str:
     return "url(\"data:image/svg+xml;utf8," + svg.replace("<", "%3C").replace(">", "%3E").replace("#", "%23") + "\")"
 
 
-# Menu follows the QC cycle: understand the flow, start a test, read results, approve fixes, share reports, track trends.
-NAV_ORDER = [("Workflow", "workflow"), ("Create & Run", "play"), ("Results", "results"),
-             ("Fix Approval", "shield"), ("Reports", "file"), ("Dashboard", "overview"),
-             ("Analytics", "chart"), ("Settings", "settings")]
+# Menu follows the QC cycle: understand the flow, see the big picture, start a test, approve fixes, read reports, track trends.
+NAV_ORDER = [("Workflow", "workflow"), ("Dashboard", "overview"), ("Create & Run", "play"),
+             ("Fix Approval", "shield"), ("Reports", "file"), ("Analytics", "chart"), ("Settings", "settings")]
 
 _ASSETS = Path(__file__).parent / "assets"
 
