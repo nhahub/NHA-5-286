@@ -14,7 +14,7 @@ Must not:
 from __future__ import annotations
 
 from llm.errors import has_fatal_llm_error
-from graph.state import TestRunState
+from graph.state import TestRunState, is_mock_mode
 
 
 # =========================================================
@@ -137,8 +137,7 @@ def route_after_execute(state: TestRunState) -> str:
     if _is_terminal_error(state):
         return "report"
 
-    # Preserve existing Sandbox behavior.
-    if state.get("sandbox_mode", False):
+    if is_mock_mode(state):
 
         status = state.get("terminal_status")
 
@@ -187,8 +186,7 @@ def route_after_analyze(state: TestRunState) -> str:
     if _healing_limit_reached(state):
         return "report"
 
-    # Preserve the working Sandbox behavior.
-    if state.get("sandbox_mode", False):
+    if is_mock_mode(state):
         return "fix_proposal"
 
     # Real Analyzer output.
@@ -277,7 +275,7 @@ def route_after_apply_fix(state: TestRunState) -> str:
 
     # Sandbox needs an explicit indication
     # that the mock fix was applied successfully.
-    if state.get("sandbox_mode", False):
+    if is_mock_mode(state):
 
         if state.get("mock_fix_applied"):
             return "validate"

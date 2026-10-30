@@ -19,12 +19,12 @@ graph = builder.compile(checkpointer=InMemorySaver())
 def test_decision(decision: str):
     config = {
         "configurable": {
-            "thread_id": f"sandbox-{decision}-test"
+            "thread_id": f"mock-{decision}-test"
         }
     }
 
     initial_state = {
-        "sandbox_mode": True,
+        "mock_mode": True,
         "run_id": f"test-{decision}",
         "fix_proposal": {
             "reason": "MOCK: Proposed assertion change.",

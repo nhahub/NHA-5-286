@@ -5,9 +5,9 @@ Writes: test_plan
 Must not: write Playwright code, exceed the scenario_cap, invent credentials
 """
 
-def generate_plan(request, llm_client=None, sandbox_mode=False):
+def generate_plan(request, llm_client=None, mock_mode=False):
 
-    if sandbox_mode:
+    if mock_mode:
         return mock_generate_plan(request)
 
     # return real_generate_plan(request, llm_client)   //call llm

@@ -21,7 +21,6 @@ from typing import TYPE_CHECKING, Any
 from agents.codegen import _sid_from_name, generatable_scenarios, spec_file_name
 from llm.errors import redact
 
-
 if TYPE_CHECKING:  # graph/state.py is owned by P5; keep this module importable without it
     from graph.state import TestRunState  # noqa: F401
 

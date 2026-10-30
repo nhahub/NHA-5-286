@@ -25,7 +25,7 @@ def mock_run_execute(state: Mapping[str, Any]) -> dict:
         "mock_execution_outcome", "PASS"
     )
 
-    # Sandbox only: `mock_fixes_needed` lets tests simulate several healing cycles. When it is
+    # Mock mode only: `mock_fixes_needed` lets tests simulate several healing cycles. When it is
     # absent the original behaviour applies (one applied fix makes the rerun pass).
     needed = state.get("mock_fixes_needed")
     if needed is None:
