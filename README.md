@@ -1,4 +1,6 @@
-# AI Test Automation
+# Bugle Automation
+
+Like a beagle following a scent, Bugle follows the evidence (logs, errors, traces) until it finds the real cause of a bug.
 
 Black-box AI testing tool: give it a URL and a plain-language requirement; it designs test scenarios, writes Playwright tests, runs them, explains failures, and produces an English report. **No human writes a test.**
 
@@ -128,7 +130,7 @@ runs/run-20261004-abc123/
 
 ## Dashboard UI (redesigned)
 
-`python main.py --ui` serves a multi-page dashboard at `http://127.0.0.1:7860`: **Overview**, **Create & Run**, **AI Workflow** (live LangGraph graph with branches, heal loop and the human gate), **Results**, **Fix & Approval** (patch diff, two-step confirm, approval history), **Reports**, **Analytics & Monitoring** and **Settings** (theme, mock mode, LLM).
+`python main.py --ui` serves a multi-page dashboard at `http://127.0.0.1:7860`: **Workflow** (the architecture, live per run), **Create & Run**, **Results**, **Fix Approval** (patch diff, two-step confirm, approval history), **Reports**, **Dashboard**, **Analytics** and **Settings** (theme, mock mode, LLM).
 
 - The UI is still Gradio; the workflow, approval interrupt and mock mode are unchanged.
 - Analytics only uses recorded data: UI runs saved to `runs/ui_history.jsonl` (override with `QC_UI_HISTORY`) and existing `runs/<id>/report.md` files. Empty ranges show empty states.

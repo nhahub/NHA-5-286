@@ -5,7 +5,9 @@ persisted history; they never compute workflow results and never call the workfl
 """
 
 from __future__ import annotations
+import base64
 import html
+from pathlib import Path
 
 esc = html.escape
 
@@ -50,9 +52,27 @@ def _mask(name: str) -> str:
     return "url(\"data:image/svg+xml;utf8," + svg.replace("<", "%3C").replace(">", "%3E").replace("#", "%23") + "\")"
 
 
-NAV_ORDER = [("Overview", "overview"), ("Create & Run", "play"), ("AI Workflow", "workflow"),
-             ("Results", "results"), ("Fix & Approval", "shield"), ("Reports", "file"),
+# Menu follows the QC cycle: understand the flow, start a test, read results, approve fixes, share reports, track trends.
+NAV_ORDER = [("Workflow", "workflow"), ("Create & Run", "play"), ("Results", "results"),
+             ("Fix Approval", "shield"), ("Reports", "file"), ("Dashboard", "overview"),
              ("Analytics", "chart"), ("Settings", "settings")]
+
+_ASSETS = Path(__file__).parent / "assets"
+
+
+def _logo_uri(name: str) -> str:
+    try:
+        return "data:image/png;base64," + base64.b64encode((_ASSETS / name).read_bytes()).decode("ascii")
+    except OSError:
+        return ""
+
+
+def brand_html() -> str:
+    """Sidebar brand: full logo when expanded, head-only icon when collapsed; light/dark art follows the theme."""
+    imgs = "".join(
+        f"<img class='logo-{mode} {cls}' src='{_logo_uri(f'bugle-{kind}-{mode}.png')}' alt='Bugle'>"
+        for kind, cls in (("logo", "sb-full"), ("icon", "sb-short")) for mode in ("light", "dark"))
+    return f"<div class='brand'>{imgs}</div><div class='brand-sub sb-full'>Bugle Automation</div>"
 
 
 def theme_css(theme: str) -> str:
@@ -71,7 +91,8 @@ def theme_css(theme: str) -> str:
         f"color-scheme:{'light' if theme == 'Light' else 'dark'}"
     )
     selector = "html:root, html body, html body.dark, html .dark, html .gradio-container"
-    return f"<style>:root{{{values}}} {selector}{{{values};{gradio_vars}}}</style>"
+    hide = ".logo-dark" if theme == "Light" else ".logo-light"
+    return f"<style>:root{{{values}}} {selector}{{{values};{gradio_vars}}} {hide}{{display:none!important}}</style>"
 
 
 def request_layout_css(show_progress: bool) -> str:
@@ -82,7 +103,7 @@ def request_layout_css(show_progress: bool) -> str:
 
 def collapsed_css() -> str:
     return ("<style>#app-layout{--sb-w:68px}#app-sidebar{padding:18px 8px!important}.sb-full,.session-mode{display:none!important}"
-            ".sb-short{display:flex!important}.brand{justify-content:center;padding:0 0 14px!important}"
+            ".sb-short{display:block!important}.brand{justify-content:center;padding:0 0 14px!important}"
             "#sidebar-navigation label{justify-content:center!important;padding:11px 0!important;font-size:0!important}"
             "#sidebar-navigation label span{font-size:0!important}#sidebar-navigation label::before{margin:0!important}</style>")
 
@@ -209,98 +230,133 @@ def hbars(items: list[tuple[str, float, str]], unit: str = "") -> str:
 
 
 # ------------------------------------------------------------------------------------- workflow graph
-# (stage name in the UI tracker, title, role). Positions: x, y on a 964x300 canvas.
+# Mirrors the architecture diagram. Tracked nodes use the UI tracker's stage name; the rest are static context.
+# key: (tracker stage, title, role, x, y, kind)   kind: llm = LLM agent, det = deterministic node, rep = report
 GRAPH_NODES = {
-    "intake": ("Intake", "Intake", "resolve URL · safety", 16, 34),
-    "planner": ("Planner", "Planner", "scenario plan", 176, 34),
-    "codegen": ("Code Generator", "Code Generation", "Playwright specs", 336, 34),
-    "validate": ("Validation", "Validation", "static checks", 496, 34),
-    "execute": ("Execution", "Execution", "run in browser", 656, 34),
-    "analyze": ("Analyzer", "Analysis", "classify failure", 816, 34),
-    "fix_proposal": ("Fix Proposal", "Fix Proposal", "propose patch", 816, 196),
-    "fix_approval": ("Human Approval", "Human Approval", "approve / reject", 656, 196),
-    "apply_fix": ("Apply Fix (Healing)", "Apply Fix", "apply patch", 496, 196),
-    "report": ("Report Generation", "Reporting", "final status", 16, 196),
+    "intake": ("Intake", "1 · Intake", "resolve URL · safety checks · model check", 260, 92, "det"),
+    "planner": ("Planner", "2 · Planner Agent", "requirement → scenarios", 260, 176, "llm"),
+    "codegen": ("Code Generator", "3 · Code Generation Agent", "scenarios → .spec.ts", 260, 260, "llm"),
+    "validate": ("Validation", "4 · Validate", "tsc + lint · 2 regeneration tries", 260, 344, "det"),
+    "execute": ("Execution", "6 · Execute", "run_playwright_tests · no LLM", 260, 428, "det"),
+    "analyze": ("Analyzer", "7 · Failure Analyzer Agent", "Test · Application · Environment · Infra", 330, 590, "llm"),
+    "fix_proposal": ("Fix Proposal", "8 · Fix Proposal Agent", "test code only · risky = assertion", 330, 674, "llm"),
+    "fix_approval": ("Human Approval", "9a · Approval gate", "needed when the fix is risky", 330, 758, "det"),
+    "apply_fix": ("Apply Fix (Healing)", "9b · Apply Fix", "auto, or after approval if risky", 330, 842, "det"),
+    "report": ("Report Generation", "10 · Report", "PASS / FAIL / BLOCKED / ERROR · Markdown, HTML", 120, 950, "rep"),
 }
-NW, NH = 132, 58
+NW, NH = 340, 54
 ROUTING = [
-    ("Intake", "Planner", "target URL resolved and run not BLOCKED / ERROR", "Reporting otherwise"),
-    ("Validation", "Execution", "validation_status is valid", "Reporting if invalid, BLOCKED or ERROR"),
-    ("Execution", "Analysis", "terminal status is FAIL", "Reporting on PASS, BLOCKED or ERROR"),
-    ("Analysis", "Fix Proposal", "failure type is Test and fewer than 2 healing attempts (live mode also needs a high-confidence analysis that requires a fix)",
-     "Reporting otherwise"),
-    ("Fix Proposal", "Human Approval", "a non-empty patch exists", "Reporting otherwise"),
-    ("Human Approval", "Apply Fix", "explicit human decision is approved", "Reporting on reject, empty patch or error"),
-    ("Apply Fix", "Validation", "the fix was applied (heal loop: validate and run again)", "Reporting otherwise"),
+    ("Intake", "Planner", "target URL resolved, consent given, run not BLOCKED / ERROR", "Report otherwise"),
+    ("Planner", "Code Generation", "at least one scenario was planned", "Report otherwise"),
+    ("Validation", "Execution", "validation_status is valid", "Code Generation again (max 2 tries), then Report as BLOCKED"),
+    ("Execution", "Failure Analyzer", "some test failed", "Report on PASS, BLOCKED or ERROR"),
+    ("Failure Analyzer", "Fix Proposal", "failure class is Test and fewer than 2 heals (live: high-confidence analysis that needs a fix)",
+     "Report otherwise"),
+    ("Fix Proposal", "Approval gate", "a non-empty patch exists", "Report otherwise"),
+    ("Approval gate", "Apply Fix", "human approved, or auto-heal is on and the fix is not risky", "Report on reject, empty patch or error"),
+    ("Apply Fix", "Validation", "patch applied (re-validate and rerun, max 2 per test)", "Report otherwise"),
 ]
 
 
 def workflow_svg(status: dict[str, str] | None, notes: dict[str, str] | None = None, counts: dict[str, int] | None = None) -> str:
     status, notes, counts = status or {}, notes or {}, counts or {}
+    W = NW
 
-    def cx(k): return GRAPH_NODES[k][3] + NW / 2
-    def cy(k): return GRAPH_NODES[k][4] + NH / 2
-    def top(k): return GRAPH_NODES[k][4]
-    def bot(k): return GRAPH_NODES[k][4] + NH
-    def left(k): return GRAPH_NODES[k][3]
-    def right(k): return GRAPH_NODES[k][3] + NW
+    def x(k): return GRAPH_NODES[k][3]
+    def y(k): return GRAPH_NODES[k][4]
+    def cx(k): return x(k) + W / 2
+    def bot(k): return y(k) + NH
 
-    def line(x1, y1, x2, y2, cls): return f"<line x1='{x1}' y1='{y1}' x2='{x2}' y2='{y2}' class='{cls}' marker-end='url(#arr)'/>"
+    def line(x1, y1, x2, y2, cls="e-solid"):
+        return f"<line x1='{x1}' y1='{y1}' x2='{x2}' y2='{y2}' class='{cls}' marker-end='url(#arr)'/>"
+
+    def path(d, cls, arrow=True):
+        m = " marker-end='url(#arr)'" if arrow else ""
+        return f"<path d='{d}' class='{cls}'{m}/>"
+
+    def box(title, role, bx, by, bw, bh, kind):
+        return (f"<g class='gnode g-static k-{kind}'><rect x='{bx}' y='{by}' width='{bw}' height='{bh}' rx='10' class='gbox'/>"
+                f"<text x='{bx + bw / 2}' y='{by + 22}' class='gtitle' text-anchor='middle'>{esc(title)}</text>"
+                f"<text x='{bx + bw / 2}' y='{by + 40}' class='grole' text-anchor='middle'>{esc(role)}</text></g>")
+
+    ctx = [
+        box("Input", "URL (optional) + requirement + consent", 260, 14, W, 50, "det"),
+        box("5 · Human Review", "off · optional", 40, 260, 170, 54, "opt"),
+        (f"<g class='gnode g-static k-mcp'><rect x='640' y='160' width='300' height='188' rx='10' class='gbox'/>"
+         f"<text x='790' y='186' class='gtitle' text-anchor='middle'>Playwright MCP</text>"
+         f"<text x='790' y='204' class='grole' text-anchor='middle'>official · browser tools bound per agent</text>"
+         f"<text x='790' y='232' class='grole' text-anchor='middle'>planner: navigate · snapshot · click · type</text>"
+         f"<text x='790' y='252' class='grole' text-anchor='middle'>codegen: snapshot · generate_locator</text>"
+         f"<text x='790' y='282' class='grole' text-anchor='middle'>page text = data only, never instructions</text></g>"),
+        (f"<g class='gnode g-static k-det'><rect x='640' y='404' width='300' height='96' rx='10' class='gbox'/>"
+         f"<text x='790' y='430' class='gtitle' text-anchor='middle'>Local tools</text>"
+         f"<text x='790' y='450' class='grole' text-anchor='middle'>save / read test file · run tests · get results</text>"
+         f"<text x='790' y='476' class='gtitle' text-anchor='middle'>Chromium → target site</text></g>"),
+    ]
+    dcx, dcy = cx("execute"), 540
+    diamond = (f"<g class='gnode g-static k-det'><polygon points='{dcx},{dcy - 34} {dcx + 84},{dcy} {dcx},{dcy + 34} {dcx - 84},{dcy}' class='gbox'/>"
+               f"<text x='{dcx}' y='{dcy + 4}' class='gtitle' text-anchor='middle'>Route results</text></g>")
 
     edges = [
-        line(right("intake"), cy("intake"), left("planner"), cy("planner"), "e-cond"),
-        line(right("planner"), cy("planner"), left("codegen"), cy("codegen"), "e-solid"),
-        line(right("codegen"), cy("codegen"), left("validate"), cy("validate"), "e-solid"),
-        line(right("validate"), cy("validate"), left("execute"), cy("execute"), "e-cond"),
-        line(right("execute"), cy("execute"), left("analyze"), cy("analyze"), "e-cond"),
-        line(cx("analyze") + 36, bot("analyze"), cx("fix_proposal") + 36, top("fix_proposal"), "e-cond"),
-        line(left("fix_proposal"), cy("fix_proposal"), right("fix_approval"), cy("fix_approval"), "e-cond"),
-        line(left("fix_approval"), cy("fix_approval"), right("apply_fix"), cy("apply_fix"), "e-cond"),
-        line(cx("apply_fix") + 36, top("apply_fix"), cx("validate") + 36, bot("validate"), "e-loop"),
-        line(left("apply_fix"), cy("apply_fix"), right("report"), cy("report"), "e-exit"),
-        line(cx("intake"), bot("intake"), cx("report"), top("report"), "e-exit"),
+        line(cx("intake"), 64, cx("intake"), y("intake")),
+        line(cx("intake"), bot("intake"), cx("planner"), y("planner"), "e-cond"),
+        line(cx("planner"), bot("planner"), cx("codegen"), y("codegen"), "e-cond"),
+        line(cx("codegen"), bot("codegen"), cx("validate"), y("validate")),
+        line(cx("validate"), bot("validate"), cx("execute"), y("execute"), "e-cond"),
+        line(cx("execute"), bot("execute"), dcx, dcy - 34),
+        line(x("planner") + W, y("planner") + 27, 640, 220),
+        line(x("codegen") + W, y("codegen") + 27, 640, 300),
+        line(210, 287, 260, 287, "e-opt"),
+        line(x("execute") + W, y("execute") + 27, 640, 452),
+        path(f"M {dcx + 84} {dcy} H 560 V 617 H {x('analyze') + W}", "e-cond"),
+        line(cx("analyze"), bot("analyze"), cx("fix_proposal"), y("fix_proposal"), "e-cond"),
+        line(cx("fix_proposal"), bot("fix_proposal"), cx("fix_approval"), y("fix_approval"), "e-cond"),
+        line(cx("fix_approval"), bot("fix_approval"), cx("apply_fix"), y("apply_fix"), "e-cond"),
+        path(f"M {x('apply_fix')} {y('apply_fix') + 27} H 215 V {y('validate') + 27} H {x('validate') - 4}", "e-loop"),
+        path(f"M {dcx - 84} {dcy} H 150 V 946", "e-exit"),
+        path(f"M {x('apply_fix') + W / 2 + 80} {bot('apply_fix')} V 930 H 460 V 946", "e-exit"),
     ]
-    rail_y = 150
-    rail = f"<line x1='{cx('intake')}' y1='{rail_y}' x2='{cx('analyze') - 16}' y2='{rail_y}' class='e-exit' />"
-    for k, dx in (("validate", -36), ("execute", -36), ("analyze", -36)):
-        rail += f"<line x1='{cx(k) + dx}' y1='{bot(k)}' x2='{cx(k) + dx}' y2='{rail_y}' class='e-exit'/>"
-    for k, dx in (("fix_approval", -16), ("fix_proposal", -16)):
-        rail += f"<line x1='{cx(k) + dx}' y1='{top(k)}' x2='{cx(k) + dx}' y2='{rail_y}' class='e-exit'/>"
-    labels = (f"<text x='{cx('planner') - 8}' y='{rail_y - 7}' class='e-label'>early exit to Reporting</text>"
-              f"<text x='{cx('apply_fix') + 44}' y='{cy('validate') + 52}' class='e-label e-label-loop'>heal loop</text>")
+    labels = (f"<text x='{dcx + 96}' y='{dcy - 8}' class='e-label e-label-cond'>fail</text>"
+              f"<text x='224' y='{dcy - 8}' class='e-label'>pass / other</text>"
+              f"<text x='24' y='{y('validate') + 80}' class='e-label e-label-loop'>re-validate + rerun · max 2 per test</text>"
+              f"<text x='{x('analyze') + 8}' y='{y('analyze') - 6}' class='e-label'>Test class only</text>")
 
     nodes = []
-    for key, (stage, title, role, x, y) in GRAPH_NODES.items():
+    for key, (stage, title, role, nx, ny, kind) in GRAPH_NODES.items():
         st = str(status.get(stage, "Not run")).strip().lower() or "not run"
         cls = st.replace(" ", "-")
         note_txt = notes.get(stage, "")
         label = {"not run": "Not run", "waiting for approval": "Awaiting decision"}.get(st, st.title())
-        gate = (f"<text x='{x + NW - 6}' y='{y - 7}' class='gate' text-anchor='end'>HUMAN GATE</text>"
-                if key == "fix_approval" else "")
         extra = f" · {note_txt}" if note_txt else ""
-        visits = f"<text x='{x + NW - 8}' y='{y + 16}' class='visits' text-anchor='end'>×{counts[stage]}</text>" if counts.get(stage, 0) > 1 else ""
+        w = 360 if key == "report" else W
+        gate = (f"<text x='{nx + w - 8}' y='{ny - 6}' class='gate' text-anchor='end'>HUMAN GATE</text>" if key == "fix_approval" else "")
+        visits = (f"<text x='{nx + w - 10}' y='{ny + 17}' class='visits' text-anchor='end'>×{counts[stage]}</text>"
+                  if counts.get(stage, 0) > 1 else "")
         nodes.append(
-            f"<g class='gnode g-{cls}'><title>{esc(title)} — {esc(label + extra)}</title>"
-            f"<rect x='{x}' y='{y}' width='{NW}' height='{NH}' rx='10' class='gbox'/>{gate}"
-            f"<circle cx='{x + 14}' cy='{y + 16}' r='4.5' class='gdot'/>"
-            f"<text x='{x + 26}' y='{y + 20}' class='gtitle'>{esc(title)}</text>"
-            f"<text x='{x + 14}' y='{y + 37}' class='grole'>{esc(role)}</text>"
-            f"<text x='{x + 14}' y='{y + 51}' class='gstat'>{esc((label + extra)[:24])}</text>{visits}</g>")
+            f"<g class='gnode g-{cls} k-{kind}'><title>{esc(title)} — {esc(label + extra)}</title>"
+            f"<rect x='{nx}' y='{ny}' width='{w}' height='{NH}' rx='10' class='gbox'/>{gate}"
+            f"<circle cx='{nx + 14}' cy='{ny + 17}' r='4.5' class='gdot'/>"
+            f"<text x='{nx + 26}' y='{ny + 21}' class='gtitle'>{esc(title)}</text>"
+            f"<text x='{nx + 14}' y='{ny + 40}' class='grole'>{esc(role)}</text>"
+            f"<text x='{nx + w - 12}' y='{ny + 21}' class='gstat' text-anchor='end'>{esc((label + extra)[:22])}</text>{visits}</g>")
     defs = ("<defs><marker id='arr' viewBox='0 0 10 10' refX='9' refY='5' markerWidth='6' markerHeight='6' orient='auto-start-reverse'>"
             "<path d='M0 0 10 5 0 10z' class='arrow'/></marker></defs>")
-    return (f"<svg viewBox='0 0 964 276' class='wf' role='img' aria-label='LangGraph workflow'>{defs}"
-            f"{rail}{''.join(edges)}{labels}{''.join(nodes)}</svg>")
+    return (f"<svg viewBox='0 0 960 1020' class='wf' role='img' aria-label='Bugle workflow'>{defs}"
+            f"{''.join(edges)}{labels}{''.join(ctx)}{diamond}{''.join(nodes)}</svg>")
 
 
 def workflow_legend() -> str:
-    return ("<div class='wf-legend'><span><i class='lg-line solid'></i>always follows</span>"
+    return ("<div class='wf-legend'><span><i class='lg-box llm'></i>LLM agent</span>"
+            "<span><i class='lg-box det'></i>deterministic node or tool</span>"
+            "<span><i class='lg-box opt'></i>optional (off)</span>"
             "<span><i class='lg-line cond'></i>conditional routing</span>"
-            "<span><i class='lg-line exit'></i>early exit to Reporting</span>"
-            "<span><i class='lg-line loop'></i>heal loop back to Validation</span>"
+            "<span><i class='lg-line loop'></i>heal loop</span>"
+            "<span><i class='lg-line exit'></i>exit to the report</span>"
             "<span class='sep'></span>"
             "<span><i class='dot d-mute'></i>not run</span><span><i class='dot d-info'></i>running</span>"
             "<span><i class='dot d-ok'></i>completed</span><span><i class='dot d-warn'></i>awaiting approval</span>"
-            "<span><i class='dot d-bad'></i>failed</span></div>")
+            "<span><i class='dot d-bad'></i>failed</span></div>"
+            "<div class='wf-legend'><span>Every path ends at the report.</span></div>")
 
 
 def routing_table() -> str:
@@ -333,11 +389,12 @@ footer{display:none!important}
  padding:18px 12px!important;box-sizing:border-box!important;gap:0!important;position:sticky!important;top:0!important;height:100vh!important;
  overflow-y:auto!important;overflow-x:hidden!important;align-self:start!important;transition:width .2s}
 #app-sidebar>*{background:transparent!important;border:0!important;box-shadow:none!important;padding:0!important;margin:0!important}
-.brand{display:flex;align-items:center;gap:10px;padding:2px 8px 18px}
+.brand{display:flex;align-items:center;justify-content:center;padding:2px 8px 4px}.brand img{display:block;width:100%;max-width:150px;height:auto}
+.brand img.sb-short{width:38px}.brand-sub{text-align:center;font-weight:600;font-size:11px;letter-spacing:1.4px;text-transform:uppercase;color:var(--app-muted);padding:0 0 16px}
 .brand-mark{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;color:#fff;font-weight:700;font-size:13px;letter-spacing:.5px;
  background:linear-gradient(135deg,var(--app-accent),var(--app-violet));box-shadow:0 4px 16px var(--app-glow);flex:none}
 .brand-name{font-weight:700;font-size:15px;letter-spacing:-.2px;line-height:1.15}.brand-name small{display:block;font-weight:500;font-size:11px;color:var(--app-muted);letter-spacing:0}
-.sb-short{display:none}
+.sb-short{display:none!important}
 #sidebar-toggle{min-width:0!important;width:100%!important;margin:0 0 12px!important;padding:5px 0!important;min-height:30px!important;
  background:transparent!important;color:var(--app-muted)!important;border:1px solid var(--app-line)!important;border-radius:8px!important;font-size:12px!important}
 #sidebar-toggle:hover{color:var(--app-text)!important;background:var(--app-soft)!important}
@@ -450,6 +507,12 @@ footer{display:none!important}
 @keyframes blink{50%{opacity:.25}}
 .e-solid,.e-cond,.e-loop,.e-exit{fill:none;stroke-width:1.6}.e-solid{stroke:var(--app-muted)}.e-cond{stroke:var(--app-accent);stroke-dasharray:5 4}
 .e-loop{stroke:var(--app-violet);stroke-dasharray:2 4;stroke-width:2}.e-exit{stroke:var(--app-warn);stroke-dasharray:3 5;opacity:.75;stroke-width:1.3}
+.k-llm .gbox{fill:color-mix(in srgb,var(--app-violet) 22%,var(--app-surface2));stroke:var(--app-violet)}
+.k-opt .gbox{stroke-dasharray:5 4}.k-rep .gbox{fill:color-mix(in srgb,var(--app-ok) 16%,var(--app-surface2));stroke:var(--app-ok)}
+.g-static.k-opt .gbox{fill:transparent}.g-static.k-mcp .gbox{fill:color-mix(in srgb,var(--app-info) 8%,var(--app-surface2))}
+.e-opt{fill:none;stroke:var(--app-muted);stroke-dasharray:3 4;stroke-width:1.4}.e-label-cond{fill:var(--app-accent)}
+.lg-box{display:inline-block;width:14px;height:12px;border-radius:3px;border:1.5px solid var(--app-line);background:var(--app-surface2)}
+.lg-box.llm{background:color-mix(in srgb,var(--app-violet) 35%,transparent);border-color:var(--app-violet)}.lg-box.opt{border-style:dashed}
 .arrow{fill:var(--app-muted)}.e-label{font-size:9.5px;fill:var(--app-warn);opacity:.9}.e-label-loop{fill:var(--app-violet)}
 .wf-legend{display:flex;flex-wrap:wrap;gap:6px 18px;padding:12px 6px 4px;font-size:11.5px;color:var(--app-muted);align-items:center}
 .wf-legend span{display:inline-flex;align-items:center;gap:7px}.wf-legend .sep{flex:1}

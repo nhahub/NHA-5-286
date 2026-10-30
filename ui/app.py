@@ -118,7 +118,7 @@ def navigate(page: str) -> list:
 def topbar_html(page: str, use_mock: bool) -> str:
     mocking = use_mock is True or str(use_mock).strip().lower() in {"true", "1", "yes", "on"}
     mode = D.badge("Mock mode · simulated", "violet") if mocking else D.badge("Live mode · real agents", "info")
-    return f"<div class='crumb'>QC AI <span>/</span> <b>{html.escape(page)}</b> {mode}</div>"
+    return f"<div class='crumb'>Bugle <span>/</span> <b>{html.escape(page)}</b> {mode}</div>"
 
 
 def session_mode_label(use_mock: bool) -> str:
@@ -976,7 +976,7 @@ def goto_approval(session):
         thread_id = next((t for t, info in RUNS.items() if info.get("paused")), thread_id)
     if thread_id:
         session = {"thread_id": thread_id, "waiting_for_approval": bool(_pending_interrupt(thread_id))}
-    return "Fix & Approval", session
+    return "Fix Approval", session
 
 
 def _ui_frames(frames):
@@ -1020,7 +1020,7 @@ def select_run_ui(thread_id):
 
 
 def build_ui() -> gr.Blocks:
-    with gr.Blocks(title="QC AI · Test Automation Platform") as demo:
+    with gr.Blocks(title="Bugle Automation · AI Test Platform") as demo:
         theme_state = gr.State("Dark")
         run_state = gr.State(None)
         run_history = gr.State([])
@@ -1034,21 +1034,20 @@ def build_ui() -> gr.Blocks:
 
         with gr.Row(elem_id="app-layout"):
             with gr.Column(elem_id="app-sidebar", scale=0):
-                gr.HTML("<div class='brand'><div class='brand-mark'>QC</div><div class='brand-name sb-full'>QC AI"
-                        "<small>Test Automation Platform</small></div></div>")
+                gr.HTML(D.brand_html())
                 sidebar_toggle = gr.Button("◀ Collapse", elem_id="sidebar-toggle", size="sm")
-                nav = gr.Radio(choices=NAV_CHOICES, value="Overview", show_label=False, container=False,
+                nav = gr.Radio(choices=NAV_CHOICES, value="Workflow", show_label=False, container=False,
                                elem_classes="sidebar-nav", elem_id="sidebar-navigation")
                 session_mode = gr.HTML(session_mode_label(True))
 
             with gr.Column(elem_classes="app-shell"):
                 with gr.Row(elem_classes="topbar"):
-                    topbar = gr.HTML(topbar_html("Overview", True))
+                    topbar = gr.HTML(topbar_html("Workflow", True))
                     goto_btn = gr.Button("Review pending approval", visible=False, variant="primary", size="sm", scale=0)
 
                 # ------------------------------------------------------------------ 1 Overview
-                with gr.Column(visible=True, elem_classes="page-col") as overview_page:
-                    gr.HTML(D.page_head("Overview", "Everything the platform has recorded, at a glance. Numbers come from real runs only.", "overview"))
+                with gr.Column(visible=False, elem_classes="page-col") as overview_page:
+                    gr.HTML(D.page_head("Dashboard", "Everything the platform has recorded, at a glance. Numbers come from real runs only.", "overview"))
                     with gr.Row():
                         ov_new = gr.Button("Start a new test", variant="primary", scale=0, min_width=170)
                         ov_analytics = gr.Button("View analytics", scale=0, min_width=150)
@@ -1082,8 +1081,8 @@ def build_ui() -> gr.Blocks:
                                 gr.HTML("<p class='muted'>Mock-mode runs use simulated agents and a simulated browser. Live runs use the model selected in Settings and stop with a clear message at any stage that is not implemented yet.</p>")
 
                 # --------------------------------------------------------------- 3 AI Workflow
-                with gr.Column(visible=False, elem_classes="page-col") as workflow_page:
-                    gr.HTML(D.page_head("AI Workflow", "The real LangGraph pipeline with its conditional branches, the human approval gate and the heal loop.", "workflow"))
+                with gr.Column(visible=True, elem_classes="page-col") as workflow_page:
+                    gr.HTML(D.page_head("Workflow", "How Bugle tests an application, step by step: plan, write, check, run, explain the failure, fix, report. Colours update live during a run.", "workflow"))
                     with gr.Group(elem_classes="card"):
                         wf_graph = gr.HTML(workflow_graph_html(None))
                     wf_details = gr.HTML(workflow_details_html(None))
@@ -1116,7 +1115,7 @@ def build_ui() -> gr.Blocks:
 
                 # ------------------------------------------------------------ 5 Fix & Approval
                 with gr.Column(visible=False, elem_classes="page-col") as approval_page:
-                    gr.HTML(D.page_head("Fix & Approval", "Review the proposed fix. Nothing is applied until a human approves it.", "shield"))
+                    gr.HTML(D.page_head("Fix Approval", "Review the proposed fix. A risky fix is never applied until a human approves it.", "shield"))
                     approval_card = gr.HTML(approval_card_html(None))
                     with gr.Row(visible=False) as approval_buttons:
                         approve_btn = gr.Button("Approve Fix", variant="primary", elem_id="approve-btn")
@@ -1187,7 +1186,7 @@ def build_ui() -> gr.Blocks:
                         save_llm_btn = gr.Button("Validate & save LLM settings")
                         llm_status = gr.Markdown()
 
-        page_columns = [overview_page, request_page, workflow_page, results_page, approval_page, reports_page, analytics_page, settings_page]
+        page_columns = [workflow_page, request_page, results_page, approval_page, reports_page, overview_page, analytics_page, settings_page]
         assert len(page_columns) == len(PAGES)
         page_outputs = [overview_out, wf_graph, wf_details, approval_card, approval_buttons, res_analysis, res_artifacts, res_log,
                         report_overview, persisted_table, persisted_pick, approval_history, goto_btn]
