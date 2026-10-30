@@ -390,3 +390,19 @@ def test_analyzer_to_fix_proposal_handoff(monkeypatch) -> None:
         proposal_result["models_used"]["fix_proposal"]
         == "openai:test-model"
     )
+
+def test_real_prompts_build_chains_without_template_errors() -> None:
+    """The prompt files contain JSON examples with braces; they must stay literal, not template variables."""
+    from langchain_core.runnables import RunnableLambda
+
+    from agents.analyzer import build_analyzer_agent
+    from agents.fix_proposal import build_fix_proposal_agent
+
+    class FakeLLM:
+        def with_structured_output(self, _schema):
+            return RunnableLambda(lambda value: value)
+
+    fix = build_fix_proposal_agent(model="m", mcp_tools=[], model_factory=lambda _m: FakeLLM())
+    assert fix.invoke({"failure_context": "ctx"}) is not None
+    analyzer = build_analyzer_agent(model="m", mcp_tools=[], model_factory=lambda _m: FakeLLM())
+    assert analyzer.invoke({"failure_context": "ctx", "retry_feedback": ""}) is not None

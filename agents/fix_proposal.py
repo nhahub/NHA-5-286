@@ -10,6 +10,7 @@ from pathlib import Path
 from collections.abc import Callable
 from agents.codegen import spec_file_name
 from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 from langchain_core.exceptions import OutputParserException
@@ -127,8 +128,10 @@ def build_fix_proposal_agent(model: str,mcp_tools: list,*,model_factory: Callabl
         encoding="utf-8"
     )
 
+    # SystemMessage keeps the prompt literal: the JSON example in it contains braces that
+    # ChatPromptTemplate would otherwise treat as template variables.
     prompt = ChatPromptTemplate.from_messages([
-        ("system", system_prompt),
+        SystemMessage(content=system_prompt),
         ("human", "{failure_context}"),
     ])
 

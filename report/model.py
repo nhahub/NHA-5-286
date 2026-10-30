@@ -8,6 +8,7 @@ Must not: re-run tests, call agents, change a result, or reclassify a failure
 """
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -100,6 +101,24 @@ def parse_playwright_results(raw: Any) -> dict[str, dict[str, Any]]:
         for suite in raw.get("suites") or []:
             walk(suite)
     return found
+
+
+def load_execution_results(raw: Any) -> Any:
+    """The real executor keeps only the stats and a path in state; read the Playwright JSON it points to.
+
+    Only a file literally named results.json is read, and only when the state itself has no suites.
+    """
+    if not isinstance(raw, Mapping) or raw.get("suites"):
+        return raw
+    path = raw.get("results_path")
+    if isinstance(path, str) and Path(path).name == "results.json":
+        try:
+            data = json.loads(Path(path).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return raw
+        if isinstance(data, Mapping):
+            return {**data, **{k: v for k, v in raw.items() if k not in data}}
+    return raw
 
 
 def _total_duration(raw: Any) -> float | None:
@@ -207,7 +226,7 @@ def build_report_model(state: Mapping[str, Any]) -> ReportModel:
     plan = list(state.get("test_plan") or [])
     ids = _scenario_ids(plan)
     files = {_sid_from_name(str(p)): Path(str(p)) for p in state.get("generated_test_files") or []}
-    results = parse_playwright_results(state.get("execution_result"))
+    results = parse_playwright_results(load_execution_results(state.get("execution_result")))
     scenarios = [_scenario(s, sid, files, results) for s, sid in zip(plan, ids)]
 
     text = requirements_text(state)
