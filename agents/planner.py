@@ -172,12 +172,21 @@ def real_generate_plan(request, *, model, model_factory, target_url=None):
     ]
     llm = model_factory(model).with_structured_output(_PlannerOutput)
 
+    import time
+
     last_error = None
-    for _ in range(2):
+    attempts = 0
+    while attempts < 5:
+        attempts += 1
         try:
             plan = _PlannerOutput.model_validate(llm.invoke(messages))
         except Exception as exc:
             last_error = exc
+            if "429" in str(exc) or "rate" in str(exc).lower():
+                time.sleep(min(15 * attempts, 60))  # free tiers rate-limit; wait and retry the same request
+                continue
+            if attempts >= 2:
+                break
             messages.append(
                 HumanMessage(content=f"Your previous output was invalid: {str(exc)[:300]}. Return valid scenarios.")
             )
@@ -186,4 +195,4 @@ def real_generate_plan(request, *, model, model_factory, target_url=None):
         if scenarios:
             return scenarios
         last_error = ValueError("planner returned no scenarios")
-    raise ValueError(f"Planner failed after 2 attempts: {last_error}")
+    raise ValueError(f"Planner failed after {attempts} attempts: {last_error}")

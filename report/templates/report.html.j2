@@ -3,175 +3,271 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Test Run Report {{ r.run_id }}</title>
+<title>Bugle Test Run Report {{ r.run_id }}</title>
 <style>
-  body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #1c1c1e; margin: 2rem auto; max-width: 960px; padding: 0 1rem; line-height: 1.5; }
-  h1 { margin-bottom: .25rem; }
-  h2 { margin-top: 2rem; border-bottom: 1px solid #d0d0d5; padding-bottom: .25rem; }
-  h3 { margin-bottom: .25rem; }
-  table { border-collapse: collapse; width: 100%; margin: .75rem 0; }
-  th, td { border: 1px solid #d0d0d5; padding: .4rem .6rem; text-align: left; vertical-align: top; }
-  th { background: #f2f2f7; }
-  pre { background: #f6f8fa; border: 1px solid #d0d0d5; border-radius: 6px; padding: .75rem; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
-  .badge { display: inline-block; padding: .15rem .6rem; border-radius: 999px; font-weight: 700; color: #fff; }
-  .s-pass, .s-passed { background: #1a7f37; }
-  .s-fail, .s-failed { background: #cf222e; }
-  .s-blocked { background: #9a6700; }
-  .s-error, .s-not_run { background: #6e40c9; }
-  .note { color: #57606a; font-style: italic; }
-  .diff-del { color: #cf222e; } .diff-add { color: #1a7f37; }
-  @media print { body { margin: 0; max-width: none; } }
+  :root {
+    --bg: #f4f5fb; --card: #ffffff; --soft: #f1f2fa; --line: #e2e5f0; --text: #14182b; --muted: #636b86;
+    --accent: #7c5cf0; --accent-soft: #ece8fe;
+    --ok: #12805c; --ok-bg: #dcf5ea; --bad: #c62839; --bad-bg: #fde4e7; --warn: #a15c00; --warn-bg: #fdf0d3;
+    --info: #2b5fd9; --info-bg: #e1eaff; --code-bg: #f6f7fc;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0c0f1a; --card: #141829; --soft: #1a1f33; --line: #262c45; --text: #e8eaf6; --muted: #98a1c4;
+      --accent: #a58bff; --accent-soft: #231e45;
+      --ok: #4fd8a4; --ok-bg: #11392c; --bad: #ff8794; --bad-bg: #40191f; --warn: #f5c15a; --warn-bg: #3a2c0e;
+      --info: #7ea6ff; --info-bg: #17284f; --code-bg: #0f1324;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); line-height: 1.55;
+         font-family: Inter, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; font-size: 15px; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 28px 20px 56px; }
+  header.top { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; padding: 22px 24px; border-radius: 16px;
+               background: linear-gradient(135deg, var(--accent-soft), var(--card)); border: 1px solid var(--line); }
+  header.top img { height: 64px; width: auto; display: block; }
+  header.top .titles { flex: 1; min-width: 220px; }
+  header.top h1 { margin: 0; font-size: 26px; letter-spacing: -.3px; }
+  header.top p { margin: 2px 0 0; color: var(--muted); font-size: 13.5px; }
+  .pill { display: inline-block; padding: 4px 12px; border-radius: 999px; font-weight: 700; font-size: 12.5px; letter-spacing: .4px; }
+  .s-pass, .s-passed { background: var(--ok-bg); color: var(--ok); }
+  .s-fail, .s-failed { background: var(--bad-bg); color: var(--bad); }
+  .s-blocked { background: var(--warn-bg); color: var(--warn); }
+  .s-error, .s-not_run { background: var(--accent-soft); color: var(--accent); }
+  .status-big { font-size: 15px; padding: 8px 20px; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin: 18px 0; }
+  .kpi { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; }
+  .kpi .v { font-size: 30px; font-weight: 700; line-height: 1.1; }
+  .kpi .l { color: var(--muted); font-size: 12.5px; text-transform: uppercase; letter-spacing: .8px; margin-top: 4px; }
+  .kpi.ok .v { color: var(--ok); } .kpi.bad .v { color: var(--bad); } .kpi.warn .v { color: var(--warn); }
+  section.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; margin: 16px 0; }
+  section.card > h2 { margin: 0 0 14px; font-size: 17px; display: flex; align-items: center; gap: 10px; }
+  section.card > h2::before { content: ""; width: 4px; height: 18px; border-radius: 2px; background: var(--accent); }
+  h3 { margin: 18px 0 6px; font-size: 15px; }
+  dl.meta { display: grid; grid-template-columns: 170px 1fr; gap: 8px 16px; margin: 0; }
+  dl.meta dt { color: var(--muted); font-weight: 600; } dl.meta dd { margin: 0; word-break: break-word; }
+  table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 14px; }
+  th { text-align: left; background: var(--soft); color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .7px;
+       padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  th:first-child { border-top-left-radius: 10px; } th:last-child { border-top-right-radius: 10px; }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; word-break: break-word; }
+  tr:last-child td { border-bottom: 0; }
+  .tbl { border: 1px solid var(--line); border-radius: 10px; overflow-x: auto; }
+  pre { margin: 8px 0 0; background: var(--code-bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
+        overflow-x: auto; white-space: pre-wrap; word-break: break-word; font: 12.5px/1.55 "JetBrains Mono", Consolas, monospace; }
+  code { font-family: "JetBrains Mono", Consolas, monospace; font-size: .92em; background: var(--soft); padding: 1px 6px; border-radius: 5px; }
+  pre code { background: transparent; padding: 0; }
+  .diff { margin-top: 8px; border: 1px solid var(--line); border-radius: 10px; overflow-x: auto; background: var(--code-bg); }
+  .diff div { font: 12.5px/1.55 "JetBrains Mono", Consolas, monospace; padding: 0 12px; white-space: pre-wrap; word-break: break-word; }
+  .diff .add { background: var(--ok-bg); color: var(--ok); } .diff .del { background: var(--bad-bg); color: var(--bad); }
+  .diff .hunk { color: var(--info); background: var(--info-bg); }
+  .note { color: var(--muted); font-style: italic; }
+  .box { border-radius: 10px; padding: 12px 14px; margin: 10px 0; background: var(--soft); border: 1px solid var(--line); }
+  .box.bad { background: var(--bad-bg); border-color: transparent; color: var(--bad); }
+  ul.clean { margin: 6px 0 0; padding-left: 20px; } ul.clean li { margin: 3px 0; }
+  .steps { margin: 6px 0; padding-left: 20px; } .steps li { margin: 3px 0; }
+  footer { margin-top: 28px; text-align: center; color: var(--muted); font-size: 12.5px; }
+  @media (max-width: 640px) { dl.meta { grid-template-columns: 1fr; } header.top h1 { font-size: 21px; } }
+  @media print { body { background: #fff; } .wrap { max-width: none; padding: 0; } section.card, .kpi { break-inside: avoid; } }
 </style>
 </head>
 <body>
-<h1>Test Run Report</h1>
-<p><span class="badge s-{{ (r.terminal_status or 'ERROR')|lower }}">{{ r.terminal_status or "ERROR" }}</span></p>
+<div class="wrap">
 
-<table>
-  <tr><th>Run ID</th><td>{{ r.run_id or "unknown" }}</td></tr>
-  <tr><th>Target URL</th><td>{{ r.target_url.url or "none" }}{% if r.target_url.source %} (from {{ r.target_url.source }}){% endif %}</td></tr>
-  <tr><th>Duration</th><td>{% if r.duration_s is number %}{{ "%.1f"|format(r.duration_s) }} s{% else %}n/a{% endif %}</td></tr>
-  <tr><th>Regenerations</th><td>{{ r.attempts.generation_retries if r.attempts.generation_retries is number else "n/a" }}</td></tr>
-  <tr><th>Healing attempts</th><td>{% if r.attempts.healing %}{% for sid, n in r.attempts.healing.items() %}{{ sid }}: {{ n }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}none{% endif %}</td></tr>
-</table>
+<header class="top">
+{% if logo %}<img src="{{ logo }}" alt="Bugle">{% endif %}
+  <div class="titles">
+    <h1>Test Run Report</h1>
+    <p>Bugle Automation &middot; {{ r.target_url.url or "no target URL" }}</p>
+  </div>
+  <span class="pill status-big s-{{ (r.terminal_status or 'ERROR')|lower }}">{{ r.terminal_status or "ERROR" }}</span>
+</header>
 
-<h2>Requirements</h2>
-<pre dir="auto">{{ r.requirements_text or "(not provided)" }}</pre>
+<div class="kpis">
+  <div class="kpi"><div class="v">{{ r.counts.total or 0 }}</div><div class="l">Total</div></div>
+  <div class="kpi ok"><div class="v">{{ r.counts.passed or 0 }}</div><div class="l">Passed</div></div>
+  <div class="kpi bad"><div class="v">{{ r.counts.failed or 0 }}</div><div class="l">Failed</div></div>
+  <div class="kpi warn"><div class="v">{{ r.counts.blocked or 0 }}</div><div class="l">Blocked</div></div>
+</div>
+
+<section class="card">
+  <h2>Run details</h2>
+  <dl class="meta">
+    <dt>Status</dt><dd>{{ r.terminal_status or "ERROR" }}</dd>
+    <dt>Run ID</dt><dd>{{ r.run_id or "unknown" }}</dd>
+    <dt>Target URL</dt><dd>{{ r.target_url.url or "none" }}{% if r.target_url.source %} (from {{ r.target_url.source }}){% endif %}</dd>
+    <dt>Duration</dt><dd>{% if r.duration_s is number %}{{ "%.1f"|format(r.duration_s) }} s{% else %}n/a{% endif %}</dd>
+    <dt>Regenerations</dt><dd>{{ r.attempts.generation_retries if r.attempts.generation_retries is number else "n/a" }}</dd>
+    <dt>Healing attempts</dt><dd>{% if r.attempts.healing %}{% for sid, n in r.attempts.healing.items() %}{{ sid }}: {{ n }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}none{% endif %}</dd>
+  </dl>
+</section>
+
+<section class="card">
+  <h2>Requirements</h2>
+  <pre dir="auto">{{ r.requirements_text or "(not provided)" }}</pre>
 {% if r.requirements_note %}
-<p class="note">{{ r.requirements_note }}</p>
+  <p class="note">{{ r.requirements_note }}</p>
 {% endif %}
+</section>
 
-<h2>Summary</h2>
-<table>
-  <tr><th>Total</th><th>Passed</th><th>Failed</th><th>Blocked</th></tr>
-  <tr><td>{{ r.counts.total or 0 }}</td><td>{{ r.counts.passed or 0 }}</td><td>{{ r.counts.failed or 0 }}</td><td>{{ r.counts.blocked or 0 }}</td></tr>
-</table>
+<section class="card">
+  <h2>Summary</h2>
+  <div class="tbl"><table>
+    <tr><th>Total</th><th>Passed</th><th>Failed</th><th>Blocked</th></tr>
+    <tr><td>{{ r.counts.total or 0 }}</td><td>{{ r.counts.passed or 0 }}</td><td>{{ r.counts.failed or 0 }}</td><td>{{ r.counts.blocked or 0 }}</td></tr>
+  </table></div>
+</section>
 
-<h2>Models used</h2>
+<section class="card">
+  <h2>Models used</h2>
 {% if r.models_used %}
-<table>
-  <tr><th>Agent</th><th>Model</th></tr>
+  <div class="tbl"><table>
+    <tr><th>Agent</th><th>Model</th></tr>
 {% for agent, model in r.models_used.items() %}
-  <tr><td>{{ agent }}</td><td>{{ model }}</td></tr>
+    <tr><td>{{ agent }}</td><td><code>{{ model }}</code></td></tr>
 {% endfor %}
-</table>
+  </table></div>
 {% else %}
-<p>No model was used in this run.</p>
+  <p class="note">No model was used in this run.</p>
 {% endif %}
+</section>
 
-<h2>Scenarios</h2>
+<section class="card">
+  <h2>Scenarios</h2>
 {% if r.scenarios %}
-<table>
-  <tr><th>ID</th><th>Scenario</th><th>Status</th><th>Duration</th><th>Notes</th></tr>
+  <div class="tbl"><table>
+    <tr><th>ID</th><th>Scenario</th><th>Status</th><th>Duration</th><th>Notes</th></tr>
 {% for s in r.scenarios %}
-  <tr>
-    <td>{{ s.id }}</td><td>{{ s.name }}</td>
-    <td><span class="badge s-{{ (s.status or 'not_run')|lower }}">{{ s.status }}</span></td>
-    <td>{% if s.duration_s is number %}{{ "%.1f"|format(s.duration_s) }} s{% else %}n/a{% endif %}</td>
-    <td>{{ s.blocked_reason or "" }}</td>
-  </tr>
+    <tr>
+      <td>{{ s.id }}</td><td>{{ s.name }}</td>
+      <td><span class="pill s-{{ (s.status or 'not_run')|lower }}">{{ s.status }}</span></td>
+      <td>{% if s.duration_s is number %}{{ "%.1f"|format(s.duration_s) }} s{% else %}n/a{% endif %}</td>
+      <td>{{ s.blocked_reason or "" }}</td>
+    </tr>
 {% endfor %}
-</table>
+  </table></div>
 {% for s in r.scenarios %}
-<h3>{{ s.id }}: {{ s.name }}</h3>
-<ol>
+  <h3>{{ s.id }}: {{ s.name }}</h3>
+  <ol class="steps">
 {% for step in s.steps or [] %}
-  <li><code>{{ step.action }}</code>{% if step.target %} {{ step.target }}{% endif %}{% if step.value %} = <span dir="auto">{{ step.value }}</span>{% endif %}</li>
+    <li><code>{{ step.action }}</code>{% if step.target %} {{ step.target }}{% endif %}{% if step.value %} = <span dir="auto">{{ step.value }}</span>{% endif %}</li>
 {% endfor %}
-</ol>
-<p><strong>Expected result:</strong> {{ s.expected_result or "n/a" }}</p>
+  </ol>
+  <p><strong>Expected result:</strong> {{ s.expected_result or "n/a" }}</p>
 {% endfor %}
 {% else %}
-<p>No scenarios were produced.</p>
+  <p class="note">No scenarios were produced.</p>
 {% endif %}
+</section>
 {% if r.failure_analysis %}
 
-<h2>Failure analysis</h2>
+<section class="card">
+  <h2>Failure analysis</h2>
 {% for f in r.failure_analysis %}
-<h3>{{ f.scenario_id }}: {{ f.failure_type }}{% if f.subtype %} / {{ f.subtype }}{% endif %}</h3>
-<ul>
-  <li><strong>Confidence:</strong> {{ f.confidence or "n/a" }}</li>
-  <li><strong>Application bug:</strong> {{ "yes" if f.application_bug else "no" }}</li>
-  <li><strong>Fix required:</strong> {{ "yes" if f.fix_required else "no" }}</li>
-  <li><strong>Root cause:</strong> {{ f.root_cause }}</li>
-  <li><strong>Evidence:</strong> {{ f.evidence }}</li>
-</ul>
+  <h3>{{ f.scenario_id }}: {{ f.failure_type }}{% if f.subtype %} / {{ f.subtype }}{% endif %}</h3>
+  <ul class="clean">
+    <li><strong>Confidence:</strong> {{ f.confidence or "n/a" }}</li>
+    <li><strong>Application bug:</strong> {{ "yes" if f.application_bug else "no" }}</li>
+    <li><strong>Fix required:</strong> {{ "yes" if f.fix_required else "no" }}</li>
+    <li><strong>Root cause:</strong> {{ f.root_cause }}</li>
+    <li><strong>Evidence:</strong> {{ f.evidence }}</li>
+  </ul>
 {% if f.explanation %}
-<p>{{ f.explanation }}</p>
+  <p>{{ f.explanation }}</p>
 {% endif %}
 {% endfor %}
+</section>
 {% endif %}
 {% if r.evidence %}
 
-<h2>Evidence</h2>
+<section class="card">
+  <h2>Evidence</h2>
 {% for e in r.evidence %}
-<h3>{{ e.scenario_id }}</h3>
-<ul>
-  <li><strong>Final URL:</strong> {{ e.final_url or "n/a" }}</li>
-  <li><strong>Screenshot:</strong> {{ e.screenshot or "n/a" }}</li>
-  <li><strong>Trace:</strong> {{ e.trace or "n/a" }}</li>
+  <h3>{{ e.scenario_id }}</h3>
+  <ul class="clean">
+    <li><strong>Final URL:</strong> {{ e.final_url or "n/a" }}</li>
+    <li><strong>Screenshot:</strong> {{ e.screenshot or "n/a" }}</li>
+    <li><strong>Trace:</strong> {{ e.trace or "n/a" }}</li>
 {% if e.console_errors %}
-  <li><strong>Console errors:</strong>
-    <ul>
+    <li><strong>Console errors:</strong>
+      <ul class="clean">
 {% for c in e.console_errors %}
-      <li><code>{{ c.type }}</code> {{ c.text }}</li>
+        <li><code>{{ c.type }}</code> {{ c.text }}</li>
 {% endfor %}
-    </ul>
-  </li>
+      </ul>
+    </li>
 {% endif %}
 {% if e.failed_requests %}
-  <li><strong>Failed requests:</strong>
-    <ul>
+    <li><strong>Failed requests:</strong>
+      <ul class="clean">
 {% for n in e.failed_requests %}
-      <li>{{ n.method }} {{ n.url }} &rarr; {{ n.status if n.status is number else n.failure }}</li>
+        <li>{{ n.method }} {{ n.url }} &rarr; {{ n.status if n.status is number else n.failure }}</li>
 {% endfor %}
-    </ul>
-  </li>
+      </ul>
+    </li>
 {% endif %}
-</ul>
+  </ul>
 {% endfor %}
+</section>
 {% endif %}
 {% if r.patches %}
 
-<h2>Patches</h2>
+<section class="card">
+  <h2>Patches</h2>
 {% for p in r.patches %}
-<h3>{{ p.scenario_id }}: {{ "APPLIED" if p.applied else "NOT APPLIED" }}{% if p.risky %} (risky){% endif %}</h3>
-<ul>
-  <li><strong>Reason:</strong> {{ p.reason }}</li>
-  <li><strong>Approval:</strong> {{ p.approval or "n/a" }}</li>
+  <h3>{{ p.scenario_id }}: {{ "APPLIED" if p.applied else "NOT APPLIED" }}{% if p.risky %} (risky){% endif %}</h3>
+  <ul class="clean">
+    <li><strong>Reason:</strong> {{ p.reason }}</li>
+    <li><strong>Approval:</strong> {{ p.approval or "n/a" }}</li>
 {% if p.requirement %}
-  <li><strong>Original requirement:</strong> <span dir="auto">{{ p.requirement }}</span></li>
+    <li><strong>Original requirement:</strong> <span dir="auto">{{ p.requirement }}</span></li>
 {% endif %}
-</ul>
-<pre>{{ p.diff }}</pre>
+  </ul>
+  <div class="diff">
+{% for line in (p.diff or "").splitlines() %}
+    <div class="{{ 'add' if line.startswith('+') and not line.startswith('+++') else 'del' if line.startswith('-') and not line.startswith('---') else 'hunk' if line.startswith('@@') else '' }}">{{ line }}</div>
 {% endfor %}
+  </div>
+{% endfor %}
+</section>
 {% endif %}
 {% if r.generated_code %}
 
-<h2>Generated code</h2>
+<section class="card">
+  <h2>Generated code</h2>
 {% for g in r.generated_code %}
-<h3>{{ g.file }}{% if g.patched %} (patched){% endif %}</h3>
-<pre>{{ g.code }}</pre>
+  <h3>{{ g.file }}{% if g.patched %} (patched){% endif %}</h3>
+  <pre>{{ g.code }}</pre>
 {% endfor %}
+</section>
 {% endif %}
 {% if r.defect_candidates %}
 
-<h2>Defect candidates</h2>
-<p class="note">Application failures only. Nothing is filed automatically; an issue tracker integration is a future phase.</p>
-<ul>
+<section class="card">
+  <h2>Defect candidates</h2>
+  <p class="note">Application failures only. Nothing is filed automatically; an issue tracker integration is a future phase.</p>
+  <ul class="clean">
 {% for d in r.defect_candidates %}
-  <li><strong>{{ d.scenario_id }}:</strong> {{ d.summary }}</li>
+    <li><strong>{{ d.scenario_id }}:</strong> {{ d.summary }}</li>
 {% endfor %}
-</ul>
+  </ul>
+</section>
 {% endif %}
 {% if r.errors %}
 
-<h2>System errors</h2>
-<ul>
+<section class="card">
+  <h2>System errors</h2>
+  <div class="box bad">
+    <ul class="clean">
 {% for e in r.errors %}
-  <li>{{ e }}</li>
+      <li>{{ e }}</li>
 {% endfor %}
-</ul>
+    </ul>
+  </div>
+</section>
 {% endif %}
+
+<footer>Generated by Bugle Automation &middot; application code is never changed automatically.</footer>
+</div>
 </body>
 </html>

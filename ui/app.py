@@ -946,12 +946,28 @@ def report_overview_html(thread_id: str | None) -> str:
             + f"<div class='stack'>{summary}{results}</div>")
 
 
+def _report_frame(page: Path | None, empty_text: str) -> str:
+    """Show a saved report.html inside the page. sandbox="" blocks scripts and navigation from the report."""
+    if page is None:
+        return D.empty("No report to show", empty_text, "file")
+    document = page.read_text(encoding="utf-8", errors="replace")[:2_000_000]
+    return ("<iframe class='report-frame' sandbox='' title='Test run report' "
+            f"srcdoc=\"{html.escape(document, quote=True)}\"></iframe>")
+
+
+def preview_html(run: dict | None) -> str:
+    """The styled HTML report (runs/<run id>/report.html) for the selected run."""
+    if not run:
+        return _report_frame(None, "Start a test or choose a run to see its report here.")
+    return _report_frame(H.report_file(str(run.get("run_id") or ""), "report.html"),
+                         "This run has no saved report yet. It is written when the workflow reaches the report step.")
+
+
 def open_persisted_report(run_dir):
     md, page = H.report_file(run_dir, "report.md"), H.report_file(run_dir, "report.html")
     if not (md or page):
-        return "Choose a report folder to open its report.", None
-    text = md.read_text(encoding="utf-8", errors="replace")[:200_000] if md else "This run folder has no report.md."
-    return text, [str(p) for p in (md, page) if p]
+        return _report_frame(None, "Choose a report folder to open its report."), None
+    return _report_frame(page, "This run folder has no report.html."), [str(p) for p in (md, page) if p]
 
 
 def _saved_reports_panel() -> str:
@@ -1127,6 +1143,10 @@ def build_ui() -> gr.Blocks:
                         metric_time = gr.HTML(metric_card("—", "Execution Time"))
                         metric_heal = gr.HTML(metric_card("—", "Healing Attempts"))
                     with gr.Tabs():
+                        with gr.Tab("Report"):
+                            with gr.Group(elem_classes="card"):
+                                preview_btn = gr.Button("Refresh report")
+                                report_preview = gr.HTML(_report_frame(None, "Start a test or choose a run to see its report here."))
                         with gr.Tab("Summary"):
                             report_overview = gr.HTML(report_overview_html(None))
                         with gr.Tab("Scenarios"):
@@ -1140,16 +1160,12 @@ def build_ui() -> gr.Blocks:
                             res_artifacts = gr.HTML(results_extras_html(None)[1])
                         with gr.Tab("Execution log"):
                             res_log = gr.HTML(results_extras_html(None)[2])
-                        with gr.Tab("Preview"):
-                            with gr.Group(elem_classes="card"):
-                                preview_btn = gr.Button("Preview report")
-                                report_preview = gr.Markdown("No report preview yet.")
                         with gr.Tab("Saved reports"):
                             persisted_table = gr.HTML(_saved_reports_panel())
                             with gr.Group(elem_classes="card"):
                                 persisted_pick = gr.Dropdown(H.list_report_dirs(), label="Open a saved report", interactive=True)
                                 persisted_open = gr.Button("Open")
-                                persisted_md = gr.Markdown()
+                                persisted_md = gr.HTML()
                                 persisted_files = gr.File(label="Report files", file_count="multiple")
 
                 # ----------------------------------------------------------------- 7 Analytics
@@ -1216,7 +1232,8 @@ def build_ui() -> gr.Blocks:
 
         def after(event):
             return event.then(refresh_results, inputs=[workflow_session, run_history], outputs=results_outputs
-                              ).then(refresh_pages, inputs=workflow_session, outputs=page_outputs)
+                              ).then(refresh_pages, inputs=workflow_session, outputs=page_outputs
+                                     ).then(preview_html, inputs=run_state, outputs=report_preview)
 
         sidebar_toggle.click(toggle_sidebar, inputs=[sidebar_collapsed, nav], outputs=[sidebar_collapsed, collapse_style, nav, sidebar_toggle])
         nav.change(on_nav, inputs=[nav, use_mock], outputs=[*page_columns, topbar]
@@ -1252,7 +1269,7 @@ def build_ui() -> gr.Blocks:
         goto_btn.click(goto_approval, inputs=workflow_session, outputs=[nav, workflow_session]
                        ).then(refresh_pages, inputs=workflow_session, outputs=page_outputs)
         scenarios_table.select(scenario_details, inputs=run_state, outputs=scenario_info)
-        preview_btn.click(preview_report, inputs=run_state, outputs=report_preview)
+        preview_btn.click(preview_html, inputs=run_state, outputs=report_preview)
         def export_ui(run, fmt):
             status, path = export_report(run, fmt)
             return status, gr.update(value=path, visible=bool(path))

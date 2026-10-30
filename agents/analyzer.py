@@ -225,11 +225,15 @@ def _invoke_analyzer(
             retry_feedback=retry_feedback,
         )
 
-    result = analyzer.invoke(
-        {
-            "failure_context": failure_context,
-            "retry_feedback": retry_feedback,
-        }
+    from llm.retry import call_with_backoff
+
+    result = call_with_backoff(
+        lambda: analyzer.invoke(
+            {
+                "failure_context": failure_context,
+                "retry_feedback": retry_feedback,
+            }
+        )
     )
 
     if isinstance(result, RawFailureAnalysis):

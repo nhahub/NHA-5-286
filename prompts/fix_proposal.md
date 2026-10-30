@@ -4,7 +4,7 @@
 
 **Input:** A `FailureAnalysis` object, execution evidence, and the failing spec source code.
 
-**Output:** A `FixProposal` JSON object with fields: `patch_diff`, `reason`, `risky`.
+**Output:** A JSON object with fields: `reason`, `risky`, `fixed_code`. `fixed_code` is the COMPLETE corrected spec file; the system computes the diff itself, so never write a diff.
 
 ## Constraints
 
@@ -14,7 +14,7 @@
 - Set `risky: true` whenever:
   - The failure subtype is `ASSERTION` (changing an expected value may hide a real bug)
   - The change is not a pure selector or timing fix
-- Produce a valid unified diff in `patch_diff`.
+- Keep the file's first import line and every rule the validator enforces (no `waitForTimeout`, no `any`, credentials only from `process.env.TEST_USERNAME` / `TEST_PASSWORD`, no custom timeouts).
 - Respond in **English** only.
 
 ## Available tools
@@ -27,7 +27,7 @@
 
 ## Output schema
 
-Return a JSON object validated against `contracts.analysis.FixProposal`.
+Return `{"reason": "...", "risky": false, "fixed_code": "<entire file>"}`.
 
 > **Note:** `risky: true` patches require human approval before `apply_fix` will act on them.
 > The original requirement text is shown beside the diff during approval.

@@ -512,6 +512,7 @@ footer{display:none!important}
 .e-opt{fill:none;stroke:var(--app-muted);stroke-dasharray:3 4;stroke-width:1.4}.e-label-cond{fill:var(--app-accent)}
 .lg-box{display:inline-block;width:14px;height:12px;border-radius:3px;border:1.5px solid var(--app-line);background:var(--app-surface2)}
 .lg-box.llm{background:color-mix(in srgb,var(--app-violet) 35%,transparent);border-color:var(--app-violet)}.lg-box.opt{border-style:dashed}
+.report-frame{width:100%;height:1100px;border:1px solid var(--app-line);border-radius:12px;background:#fff;display:block}
 .arrow{fill:var(--app-muted)}.e-label{font-size:9.5px;fill:var(--app-warn);opacity:.9}.e-label-loop{fill:var(--app-violet)}
 .wf-legend{display:flex;flex-wrap:wrap;gap:6px 18px;padding:12px 6px 4px;font-size:11.5px;color:var(--app-muted);align-items:center}
 .wf-legend span{display:inline-flex;align-items:center;gap:7px}.wf-legend .sep{flex:1}
