@@ -1283,6 +1283,13 @@ def build_ui() -> gr.Blocks:
                 return "Reports"
             return NOOP
 
+        def nav_to_approval(session):
+            """When a run pauses for human approval, open the Fix Approval page so the decision is not missed."""
+            thread_id = _tid(session)
+            if thread_id and _pending_interrupt(thread_id):
+                return "Fix Approval"
+            return NOOP
+
         def on_nav(page, mock):
             return [*navigate(page), topbar_html(page, mock)]
 
@@ -1304,9 +1311,10 @@ def build_ui() -> gr.Blocks:
         show_progress.change(progress_visibility, inputs=show_progress, outputs=[progress_panel, layout_style])
         save_llm_btn.click(save_llm_settings, inputs=[llm_provider, llm_model, llm_api_key], outputs=[llm_status, llm_state])
 
-        after(start.click(start_ui, inputs=[url, requirements, browser, mode, maximum, timeout, authorization, use_mock,
-                                            mock_outcome, mock_risky, mock_fixes, llm_state, run_history,
-                                            auth_username, auth_password, skip_auth], outputs=run_outputs))
+        started = start.click(start_ui, inputs=[url, requirements, browser, mode, maximum, timeout, authorization, use_mock,
+                                                mock_outcome, mock_risky, mock_fixes, llm_state, run_history,
+                                                auth_username, auth_password, skip_auth], outputs=run_outputs)
+        after(started.then(nav_to_approval, inputs=workflow_session, outputs=nav))
 
         # Two-step decision: the buttons only ask for confirmation; only "Confirm" calls the real resume path.
         approve_btn.click(lambda s: ask_confirm(s, "approved"), inputs=workflow_session,
