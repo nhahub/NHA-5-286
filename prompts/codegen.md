@@ -73,6 +73,7 @@ An action not in this table: use the closest web-first equivalent, and never inv
 - Expected values come only from the scenario (`steps[].value`, `expected_result`). Never copy a value you saw on the page into an assertion to make it pass.
 - Assert something specific enough to fail when the feature is broken. A header-only check or a bare `toBeVisible()` on a container does not verify a requirement.
 - Use web-first assertions with the default timeout. Do not add manual sleeps or retries.
+- Short-lived messages (toasts, snackbars, banners) disappear after a few seconds. Assert them immediately after the action that triggers them, before any other wait or assertion. Prefer a lasting outcome (the saved name on the next page) as the main proof of success. Locate messages by their text with `getByText`, not by a CSS class.
 
 ## Retries
 
