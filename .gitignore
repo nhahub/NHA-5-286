@@ -41,4 +41,5 @@ Thumbs.db
 
 # Temporary pytest directories
 /.pytest_tmp_*/
-smoke_codegen.py.playwright-mcp/
+smoke_codegen.py
+.playwright-mcp/
