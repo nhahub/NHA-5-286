@@ -73,6 +73,12 @@ def build_model(provider: str, model: str, api_key: str) -> BaseChatModel:
 
     spec = PROVIDERS[provider]
     key = effective_key(provider, api_key)
+    if spec.prefix == "ollama":
+        from langchain_ollama import ChatOllama
+
+        # Local runtime: a 4k default context silently truncates prompts, and "thinking" tokens
+        # make small models very slow, so use a larger window with reasoning off.
+        return ChatOllama(model=model, num_ctx=16384, temperature=0, reasoning=False, num_predict=4096)
     if spec.prefix == "openrouter":
         return init_chat_model(f"openai:{model}", api_key=key, base_url=OPENROUTER_BASE_URL)
     return init_chat_model(f"{spec.prefix}:{model}", api_key=key)

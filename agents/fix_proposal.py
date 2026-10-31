@@ -10,6 +10,7 @@ from pathlib import Path
 from collections.abc import Callable
 from agents.codegen import spec_file_name
 from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 from langchain_core.exceptions import OutputParserException
@@ -19,8 +20,35 @@ from typing import Any, Mapping
 from contracts.evidence import Evidence
 from llm.client import record_model_used
 import subprocess
+import difflib
 from tempfile import TemporaryDirectory
 import re
+from pydantic import BaseModel, Field
+from llm.retry import call_with_backoff
+
+
+class RawFix(BaseModel):
+    """What the model returns. The system builds the unified diff itself: models write hunk headers badly."""
+
+    reason: str = Field(min_length=3)
+    risky: bool = False
+    fixed_code: str | None = None   # the complete corrected spec file (preferred)
+    patch_diff: str | None = None   # optional ready-made diff (used only when fixed_code is absent)
+
+
+def build_patch_diff(original: str, fixed: str, spec_filename: str) -> str:
+    """Unified diff from the original to the fixed spec, in the exact form validate_patch_on_copy expects."""
+    lines = difflib.unified_diff(
+        original.splitlines(keepends=True),
+        fixed.splitlines(keepends=True),
+        fromfile=f"a/{spec_filename}",
+        tofile=f"b/{spec_filename}",
+        n=3,
+    )
+    out: list[str] = []
+    for line in lines:
+        out.append(line if line.endswith("\n") else line + "\n\\ No newline at end of file\n")
+    return "".join(out)
 
 
 
@@ -67,8 +95,8 @@ def build_failure_context(state: Mapping[str, Any],*, spec_code: str, spec_filen
         "spec_code": spec_code,
         "spec_filename": spec_filename,
         "patch_instruction": (
-        f"Generate a valid unified diff targeting exactly "
-        f"{spec_filename}. Use correct hunk line counts."
+        f"Return fixed_code: the COMPLETE corrected content of {spec_filename}, "
+        "changing only what the fix requires. Do not write a diff; the system builds it."
 ),
     }
 
@@ -100,15 +128,17 @@ def build_fix_proposal_agent(model: str,mcp_tools: list,*,model_factory: Callabl
         encoding="utf-8"
     )
 
+    # SystemMessage keeps the prompt literal: the JSON example in it contains braces that
+    # ChatPromptTemplate would otherwise treat as template variables.
     prompt = ChatPromptTemplate.from_messages([
-        ("system", system_prompt),
+        SystemMessage(content=system_prompt),
         ("human", "{failure_context}"),
     ])
 
     llm = model_factory(model)
 
     structured_llm = llm.with_structured_output(
-        FixProposal
+        RawFix
     )
 
     return prompt | structured_llm
@@ -235,14 +265,32 @@ model_factory: Callable[[str], BaseChatModel]) -> dict:
 
     for attempt in range(2):
         try:
-            response = agent.invoke({
-                "failure_context": context
-            })
+            response = call_with_backoff(
+                lambda: agent.invoke({"failure_context": context})
+            )
 
-            # 4. Validate structured output
-            raw_proposal = FixProposal.model_validate(
-                response
-            ).model_dump()
+            # 4. Validate structured output and build the diff ourselves
+            data = (
+                response.model_dump()
+                if isinstance(response, BaseModel)
+                else dict(response)
+            )
+            fixed_code = data.get("fixed_code")
+            if fixed_code:
+                from agents.codegen import normalize_model_code
+
+                fixed_code = normalize_model_code(fixed_code)
+            if fixed_code and fixed_code.strip():
+                if fixed_code.strip() == spec_code.strip():
+                    raise ValueError("fixed_code is identical to the original spec.")
+                patch_diff = build_patch_diff(spec_code, fixed_code, spec_filename)
+            else:
+                patch_diff = data.get("patch_diff") or ""
+            raw_proposal = FixProposal.model_validate({
+                "patch_diff": patch_diff,
+                "reason": data.get("reason"),
+                "risky": bool(data.get("risky", False)),
+            }).model_dump()
 
             # 5. Enforce risk rules
             proposal = validate_and_flag_proposal(
@@ -310,19 +358,17 @@ def select_failed_spec_file(
     ]
 
     # 2. Identify failed scenarios
-    failed_names = {
+    failed_names = list(dict.fromkeys(
         item.scenario_name
         for item in evidence_items
         if item.error_message
-    }
+    ))
 
-    if len(failed_names) != 1:
-        raise ValueError(
-            "Expected exactly one failed scenario "
-            "for this fix proposal."
-        )
+    if not failed_names:
+        raise ValueError("No failed scenario found in the evidence.")
 
-    scenario_name = next(iter(failed_names))
+    # One test is healed at a time; the first failed scenario goes first.
+    scenario_name = failed_names[0]
 
     # 3. Match the scenario to its generated file
     matches = []

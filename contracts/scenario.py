@@ -22,6 +22,9 @@ class TestRequest(BaseModel):
     healer_model: str | None = None
     fallback_model: str | None = None
     authorization: bool
+    auth_required: bool = False  # whether the app needs a login; the secret values are never part of the request
+    auth_method: str | None = None
+    auth_skipped: bool = False  # the user chose not to validate authentication (testing the login page itself)
 
     @field_validator("scenario_cap")
     @classmethod

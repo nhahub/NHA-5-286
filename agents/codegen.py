@@ -137,6 +137,7 @@ def build_user_payload(
     previous_code: str | None = None,
     validation_errors: Sequence[str] = (),
     reviewer_note: str | None = None,
+    authentication: Mapping[str, Any] | None = None,
 ) -> str:
     payload = {
         "scenario": {**{k: v for k, v in scenario.items() if k != "status"}, "id": sid},
@@ -144,14 +145,27 @@ def build_user_payload(
         "previous_code": previous_code,
         "validation_errors": list(validation_errors)[:MAX_ERRORS_IN_PAYLOAD],
         "reviewer_note": reviewer_note,
+        "authentication": dict(authentication or {"required": False, "method": "none", "env_vars": []}),
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+_NEWLINE_ENTITY = re.compile(r"&#?(?:x0*[aA]|0*10);")
+
+
+def normalize_model_code(code: str) -> str:
+    """Some models write a line break as an entity (&10; or &#10;), or as a literal backslash-n when the whole
+    file is on one line. Restore real line breaks so the file compiles; correct files are returned unchanged."""
+    code = _NEWLINE_ENTITY.sub("\n", code)
+    if "\n" not in code.strip() and "\\n" in code:
+        code = code.replace("\\n", "\n")
+    return code
 
 
 def write_spec(tests_dir: Path, file_name: str, code: str) -> Path:
     tests_dir.mkdir(parents=True, exist_ok=True)
     path = tests_dir / file_name
-    path.write_text(code.rstrip() + "\n", encoding="utf-8")
+    path.write_text(normalize_model_code(code).rstrip() + "\n", encoding="utf-8")
     return path
 
 
@@ -165,8 +179,10 @@ def generate_one(
     previous_code: str | None,
     validation_errors: Sequence[str],
     reviewer_note: str | None,
+    authentication: Mapping[str, Any] | None = None,
 ) -> tuple[str, str]:
-    payload = build_user_payload(scenario, sid, target_url, previous_code, validation_errors, reviewer_note)
+    payload = build_user_payload(scenario, sid, target_url, previous_code, validation_errors, reviewer_note,
+                                 authentication)
     result, model = backend.generate(system_prompt, payload)
     if result.scenario_id.casefold() != sid:
         raise CodegenError(f"model returned scenario_id {result.scenario_id!r}, expected {sid!r}")
@@ -240,6 +256,9 @@ def run_codegen(
         tests_dir = Path(runs_root) / str(state["run_id"]) / "tests"
         target_url = _resolve_url(state.get("target_url"))
         models_seen: list[str] = []
+        from llm.run_auth import auth_prompt_info
+
+        authentication = auth_prompt_info(state.get("test_request"))  # names only, never values
 
         for sid, scenario in zip(ids, scenarios):
             if sid not in todo:
@@ -252,6 +271,7 @@ def run_codegen(
                     previous_code=previous,
                     validation_errors=errors_for(sid, validation_errors) if previous else (),
                     reviewer_note=state.get("reviewer_note"),
+                    authentication=authentication,
                 )
                 if model not in models_seen:
                     models_seen.append(model)

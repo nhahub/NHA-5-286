@@ -218,8 +218,9 @@ def route_after_analyze(state: TestRunState) -> str:
     if analysis.get("fix_required") is not True:
         return "report"
 
-    # Only high-confidence analysis may reach the healer.
-    if analysis.get("confidence", "low") != "high":
+    # Low-confidence analysis never reaches the healer. Medium is allowed because
+    # every patch is still validated, and risky ones need human approval.
+    if analysis.get("confidence", "low") not in ("high", "medium"):
         return "report"
 
     return "fix_proposal"

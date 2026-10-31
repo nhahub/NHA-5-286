@@ -161,3 +161,29 @@ def report_file(run_dir: str, name: str) -> Path | None:
     if RUNS_DIR.resolve() not in path.parents or not path.is_file():
         return None
     return path
+
+
+
+def clear_history(extra_dirs: tuple[Path, ...] = ()) -> int:
+    """Delete recorded history: the UI run log, saved report.md / report.html files and exported reports.
+
+    Test specs, traces and other run artifacts are left alone. Returns the number of files removed.
+    """
+    removed = 0
+    targets = [history_path()]
+    if RUNS_DIR.is_dir():
+        for run_dir in RUNS_DIR.iterdir():
+            if run_dir.is_dir():
+                targets += [run_dir / "report.md", run_dir / "report.html"]
+    for folder in extra_dirs:
+        if folder.is_dir():
+            targets += [f for f in folder.iterdir() if f.is_file()]
+    with _LOCK:
+        for path in targets:
+            try:
+                if path.is_file():
+                    path.unlink()
+                    removed += 1
+            except OSError:
+                continue
+    return removed
