@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 from agents.codegen import _sid_from_name, generatable_scenarios, spec_file_name
 from llm.errors import redact
+from llm.run_auth import ALL_AUTH_ENV_NAMES
 
 if TYPE_CHECKING:  # graph/state.py is owned by P5; keep this module importable without it
     from graph.state import TestRunState  # noqa: F401
@@ -180,6 +181,22 @@ def missing_spec_issues(test_plan: Sequence[Mapping[str, Any]] | None, paths: Se
     return issues
 
 
+_AUTH_ENV_USE = re.compile(r"process\.env\.(?:" + "|".join(sorted(ALL_AUTH_ENV_NAMES)) + r")\b|process\.env\[")
+
+
+def public_run_issues(paths: Sequence[str | Path]) -> list[Issue]:
+    """A run without authentication must not generate specs that expect credentials (they could never pass)."""
+    issues: list[Issue] = []
+    for p in map(Path, paths):
+        if p.is_file() and p.name.endswith(".spec.ts"):
+            code = _strip_comments(p.read_text(encoding="utf-8"))
+            for m in _AUTH_ENV_USE.finditer(code):
+                issues.append(Issue("auth-not-configured",
+                                    "this run has no authentication; the spec must not use credentials",
+                                    p.name, code.count(chr(10), 0, m.start()) + 1))
+    return issues
+
+
 def validate_files(paths: Sequence[str | Path], run_dir: Path | None = None) -> list[Issue]:
     issues: list[Issue] = []
     specs: list[Path] = []
@@ -215,6 +232,13 @@ def validate_all(state: Mapping[str, Any]) -> dict[str, Any]:
                     "validation_errors": errors[:MAX_REPORTED_ISSUES],
                     "generation_retry_count": retries + 1}
         issues = [*missing, *validate_files(files)]
+        request = state.get("test_request") or {}
+        if not request.get("auth_required"):
+            issues.extend(public_run_issues(files))
+        if request.get("auth_skipped"):
+            # The login page itself is under test: its form must be filled with fake literal input, and no real
+            # credential exists in this run, so the literal-password rule has nothing to protect.
+            issues = [i for i in issues if i.rule != "hardcoded-secret"]
     except ToolchainError as exc:  # tooling is broken: not the generated code's fault, so no retry
         return {"validation_status": "error",
                 "errors": [*state.get("errors", []), f"validator: {redact(str(exc))}"]}

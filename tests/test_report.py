@@ -268,3 +268,26 @@ def test_write_reports_does_not_change_the_model(tmp_path: Path) -> None:
     before = json.dumps(model, sort_keys=True)
     write_reports(model, tmp_path / "run")
     assert json.dumps(model, sort_keys=True) == before
+
+
+def test_real_execution_result_with_results_path_gives_scenario_statuses(tmp_path) -> None:
+    """The real executor stores stats + results_path only; the report must read results.json, not show NOT_RUN."""
+    import json
+
+    from report.model import build_report_model
+
+    results = tmp_path / "results.json"
+    results.write_text(json.dumps({
+        "stats": {"expected": 1, "unexpected": 0, "duration": 1500},
+        "suites": [{"file": "s1-login.spec.ts", "specs": [
+            {"title": "Login", "file": "s1-login.spec.ts", "ok": True,
+             "tests": [{"status": "expected", "results": [{"status": "passed", "duration": 1500}]}]}]}],
+    }), encoding="utf-8")
+    model = build_report_model({
+        "run_id": "r1", "test_plan": [{"name": "Login", "steps": [], "expected_result": "ok"}],
+        "generated_test_files": ["runs/r1/tests/s1-login.spec.ts"],
+        "execution_result": {"stats": {"expected": 1}, "results_path": str(results)},
+        "errors": [],
+    })
+    assert model["scenarios"][0]["status"] == "PASSED"
+    assert model["terminal_status"] == "PASS"

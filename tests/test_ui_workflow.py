@@ -106,6 +106,9 @@ def test_live_mode_stops_when_planner_fails_without_mock(monkeypatch):
         raise RuntimeError("provider rejected the request SECRET-KEY-123")
 
     monkeypatch.setattr("agents.planner.generate_plan", failing_plan)
+    # This test is about the planner failing; Preflight (a real network check) has its own coverage.
+    from preflight.result import PASS, REACHABLE, AUTH_NOT_REQUIRED, PreflightResult
+    monkeypatch.setattr(app, "run_preflight", lambda *a, **k: PreflightResult(PASS, REACHABLE, AUTH_NOT_REQUIRED, "ok"))
     cfg = {"provider": "Gemini", "model": "m", "api_key": "SECRET-KEY-123", "validated": True}
     final = _last(_start(use_mock=False, llm_cfg=cfg))
     run = app.build_run(final[1]["thread_id"])

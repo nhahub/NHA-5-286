@@ -32,6 +32,7 @@ import json
 from pathlib import Path
 from typing import Literal
 
+from langchain_core.messages import SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
@@ -117,7 +118,7 @@ def build_analyzer_agent(
 
     prompt = ChatPromptTemplate.from_messages(
         [
-            ("system", _load_system_prompt()),
+            SystemMessage(content=_load_system_prompt()),
             (
                 "human",
                 "Analyze the following execution context:\n"
@@ -225,11 +226,15 @@ def _invoke_analyzer(
             retry_feedback=retry_feedback,
         )
 
-    result = analyzer.invoke(
-        {
-            "failure_context": failure_context,
-            "retry_feedback": retry_feedback,
-        }
+    from llm.retry import call_with_backoff
+
+    result = call_with_backoff(
+        lambda: analyzer.invoke(
+            {
+                "failure_context": failure_context,
+                "retry_feedback": retry_feedback,
+            }
+        )
     )
 
     if isinstance(result, RawFailureAnalysis):
@@ -298,8 +303,17 @@ def run_analyzer(
             # Enforce the canonical project contract.
             analysis = FailureAnalysis.model_validate(classified)
 
+            analysis_dict = analysis.model_dump()
+            # Record which scenario this analysis is about, so the report and the healing counter can name it.
+            try:
+                from agents.fix_proposal import select_failed_spec_file
+
+                analysis_dict["scenario_id"] = select_failed_spec_file(state).name.split("-", 1)[0]
+            except (ValueError, KeyError, OSError):
+                pass
+
             updates = {
-                "failure_analysis": analysis.model_dump(),
+                "failure_analysis": analysis_dict,
                 "failure_type": analysis.failure_type,
             }
             updates.update(

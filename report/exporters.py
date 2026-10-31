@@ -73,8 +73,25 @@ def render_markdown(model: ReportModel | Mapping[str, Any]) -> str:
     return _env(False).get_template("report.md.j2").render(r=model)
 
 
+_LOGO_URI: str | None = None
+
+
+def _logo_uri() -> str:
+    """The Bugle logo as a data URI so report.html stays a single self-contained file."""
+    global _LOGO_URI
+    if _LOGO_URI is None:
+        try:
+            import base64
+
+            png = (PROJECT_ROOT / "ui" / "assets" / "bugle-logo-light.png").read_bytes()
+            _LOGO_URI = "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+        except OSError:
+            _LOGO_URI = ""
+    return _LOGO_URI
+
+
 def render_html(model: ReportModel | Mapping[str, Any]) -> str:
-    return _env(True).get_template("report.html.j2").render(r=model)
+    return _env(True).get_template("report.html.j2").render(r=model, logo=_logo_uri())
 
 
 # ----------------------------------------------------------------------- writers

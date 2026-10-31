@@ -30,6 +30,7 @@ from typing import Any
 from analysis.evidence import parse_playwright_results, normalise_evidence
 from contracts.evidence import ConsoleEntry, Evidence, NetworkEntry
 from graph.state import TestRunState
+from llm.run_auth import child_env, scrub, secret_values
 
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -70,15 +71,20 @@ def run_playwright_tests(
     spec_files: list[str],
     run_dir: str,
     target_url: str | None = None,
+    thread_id: str | None = None,
+    auth_required: bool = False,
 ) -> dict:
-    """Run Playwright and return its JSON reporter output."""
+    """Run Playwright and return its JSON reporter output.
+
+    The child process never inherits TEST_USERNAME / TEST_PASSWORD (or any other auth variable) from the parent
+    shell; this run's own credentials are added only when auth_required is true."""
     run_path = Path(run_dir).resolve()
     run_path.mkdir(parents=True, exist_ok=True)
 
     results_path = run_path / "results.json"
     results_path.unlink(missing_ok=True)
 
-    env = os.environ.copy()
+    env = child_env(os.environ, thread_id, auth_required)
     env["RUN_DIR"] = str(run_path)
 
     if target_url:
@@ -146,6 +152,8 @@ def run_playwright_tests(
             check=False,
         )
 
+    scrub_run_artifacts(run_path)  # before anything reads the files: results.json, traces and reports
+    completed.stdout, completed.stderr = scrub(completed.stdout or ""), scrub(completed.stderr or "")
     results = _read_json(results_path)
 
     if not results:
@@ -165,6 +173,76 @@ def run_playwright_tests(
 
 
 
+_TEXT_SUFFIXES = {".json", ".md", ".txt", ".log", ".html", ".trace", ".network", ".stacks", ".ts", ".js", ".yml", ".yaml"}
+_BINARY_MEMBERS = {".png", ".jpeg", ".jpg", ".webm"}
+_MAX_SCRUB_BYTES = 100 * 1024 * 1024
+
+
+def _scrub_bytes(data: bytes, secrets: list[bytes]) -> bytes:
+    for secret in secrets:
+        data = data.replace(secret, b"[redacted]")
+    return data
+
+
+def _replace_with_retry(tmp: Path, path: Path) -> None:
+    """Windows can keep a just-written file locked for a moment (browser or antivirus); retry before giving up."""
+    import time
+
+    for attempt in range(10):
+        try:
+            tmp.replace(path)
+            return
+        except OSError:
+            if attempt == 9:
+                raise
+            time.sleep(0.3)
+
+
+def _scrub_zip(path: Path, secrets: list[bytes]) -> None:
+    """Rewrite a Playwright trace/report archive with every secret removed from its members."""
+    import zipfile
+
+    tmp = path.with_name(path.name + ".scrub")
+    changed = False
+    with zipfile.ZipFile(path) as src, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as dst:
+        for item in src.infolist():
+            data = src.read(item.filename)
+            clean = data if Path(item.filename).suffix.lower() in _BINARY_MEMBERS else _scrub_bytes(data, secrets)
+            changed = changed or clean != data
+            dst.writestr(item, clean)
+    if changed:
+        _replace_with_retry(tmp, path)
+    else:
+        tmp.unlink(missing_ok=True)
+
+
+def scrub_run_artifacts(run_dir: Path) -> None:
+    """Remove this process's registered credentials from every file the Playwright run wrote (results, error
+    context, traces, html report). No-op when no run has registered credentials. A file that cannot be cleaned is
+    deleted: evidence that may hold a credential is worse than no evidence."""
+    secrets = [s.encode("utf-8") for s in secret_values()]
+    if not secrets:
+        return
+    for path in list(Path(run_dir).rglob("*")):
+        try:
+            if not path.is_file() or path.stat().st_size > _MAX_SCRUB_BYTES:
+                continue
+            suffix = path.suffix.lower()
+            if suffix == ".zip":
+                _scrub_zip(path, secrets)
+            elif suffix in _TEXT_SUFFIXES:
+                data = path.read_bytes()
+                clean = _scrub_bytes(data, secrets)
+                if clean != data:
+                    path.write_bytes(clean)
+        except Exception:
+            for leftover in (path, path.with_name(path.name + ".scrub")):
+                try:
+                    leftover.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+
 def collect_evidence(
     results: dict,
     run_dir: str,
@@ -177,7 +255,7 @@ def collect_evidence(
 
 
 
-def run_execute(state: TestRunState) -> dict:
+def run_execute(state: TestRunState, thread_id: str | None = None) -> dict:
     """Execute generated tests and return state updates."""
     run_id = state.get("run_id")
 
@@ -197,6 +275,8 @@ def run_execute(state: TestRunState) -> dict:
             state.get("generated_test_files") or [],
             str(run_dir),
             target_url=state.get("target_url"),
+            thread_id=thread_id,
+            auth_required=bool((state.get("test_request") or {}).get("auth_required")),
         )
 
         evidence = collect_evidence(results, str(run_dir))
@@ -266,6 +346,6 @@ def run_execute(state: TestRunState) -> dict:
             "terminal_status": "ERROR",
             "errors": [
                 *(state.get("errors") or []),
-                f"Execution failed: {exc}",
+                f"Execution failed: {scrub(str(exc))}",
             ],
         }
