@@ -276,6 +276,10 @@ model_factory: Callable[[str], BaseChatModel]) -> dict:
                 else dict(response)
             )
             fixed_code = data.get("fixed_code")
+            if fixed_code:
+                from agents.codegen import normalize_model_code
+
+                fixed_code = normalize_model_code(fixed_code)
             if fixed_code and fixed_code.strip():
                 if fixed_code.strip() == spec_code.strip():
                     raise ValueError("fixed_code is identical to the original spec.")

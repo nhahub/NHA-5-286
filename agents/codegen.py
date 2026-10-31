@@ -150,10 +150,22 @@ def build_user_payload(
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
+_NEWLINE_ENTITY = re.compile(r"&#?(?:x0*[aA]|0*10);")
+
+
+def normalize_model_code(code: str) -> str:
+    """Some models write a line break as an entity (&10; or &#10;), or as a literal backslash-n when the whole
+    file is on one line. Restore real line breaks so the file compiles; correct files are returned unchanged."""
+    code = _NEWLINE_ENTITY.sub("\n", code)
+    if "\n" not in code.strip() and "\\n" in code:
+        code = code.replace("\\n", "\n")
+    return code
+
+
 def write_spec(tests_dir: Path, file_name: str, code: str) -> Path:
     tests_dir.mkdir(parents=True, exist_ok=True)
     path = tests_dir / file_name
-    path.write_text(code.rstrip() + "\n", encoding="utf-8")
+    path.write_text(normalize_model_code(code).rstrip() + "\n", encoding="utf-8")
     return path
 
 
