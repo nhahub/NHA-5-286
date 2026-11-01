@@ -95,13 +95,26 @@ def run_apply_fix(state: Mapping[str, Any]) -> dict:
         return _fail(state, f"Apply fix failed: {exc}")
 
     retries = state.get("healing_retry_count") or 0
+    scenario_key = str((state.get("failure_analysis") or {}).get("scenario_id") or spec_filename)
     if isinstance(retries, dict):
-        key = str((state.get("failure_analysis") or {}).get("scenario_id") or spec_filename)
-        new_retries: int | dict[str, int] = {**retries, key: int(retries.get(key, 0)) + 1}
+        new_retries: int | dict[str, int] = {**retries, scenario_key: int(retries.get(scenario_key, 0)) + 1}
+        attempt = int(new_retries[scenario_key])
     else:
         new_retries = int(retries) + 1
+        attempt = new_retries
+
+    # Keep every applied patch: the state's fix_proposal only ever holds the latest one.
+    applied = [*(state.get("applied_patches") or []), {
+        "attempt": attempt,
+        "scenario_id": scenario_key,
+        "reason": str(proposal.get("reason") or ""),
+        "risky": bool(proposal.get("risky")),
+        "approval": state.get("approval_decision"),
+        "diff": patch_diff,
+    }]
 
     return {
         "healing_retry_count": new_retries,
+        "applied_patches": applied,
         "generated_test_files": list(state.get("generated_test_files") or []),
     }

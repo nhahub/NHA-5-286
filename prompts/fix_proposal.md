@@ -15,6 +15,10 @@
   - The failure subtype is `ASSERTION` (changing an expected value may hide a real bug)
   - The change is not a pure selector or timing fix
 - Keep the file's first import line and every rule the validator enforces (no `waitForTimeout`, no `any`, credentials only from the `process.env.TEST_*` variables the spec already reads, and never add credential use to a spec that has none, no custom timeouts).
+- Fix **only the failing line or locator** given in `failing_location`. Do not change any other selector, action or assertion.
+- Build any new selector from names, labels and roles that actually appear in `page_snapshot`. Never invent or guess a label. If `page_snapshot` does not contain what you need, change nothing and explain why in `reason`.
+- **Never** use `force: true`, `dispatchEvent` or any forced interaction as a workaround. A wrong locator must be fixed, not bypassed.
+- Your patch is checked by a deterministic guard before anyone sees it: a change to an unrelated line, a forced interaction, or a selector the DOM snapshot does not support is rejected.
 - Respond in **English** only.
 
 ## Available tools

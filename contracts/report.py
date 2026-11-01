@@ -84,12 +84,21 @@ class ReportEvidence(TypedDict, total=False):
 
 class ReportPatch(TypedDict, total=False):
     scenario_id: str
+    attempt: int | None  # which healing attempt applied it (1 or 2)
     applied: bool
     risky: bool
     approval: str | None
     reason: str
     requirement: str | None  # the original requirement, shown beside the diff
     diff: str
+
+
+class ReportFixRejection(TypedDict, total=False):
+    scenario_id: str
+    code: str
+    message: str
+    failing_line: int | None
+    failing_locator: str | None
 
 
 class ReportCode(TypedDict, total=False):
@@ -118,6 +127,7 @@ class ReportModel(TypedDict, total=False):
     failure_analysis: list[ReportAnalysis]
     evidence: list[ReportEvidence]
     patches: list[ReportPatch]
+    fix_rejection: ReportFixRejection | None
     generated_code: list[ReportCode]
     defect_candidates: list[DefectCandidate]
     errors: list[str]

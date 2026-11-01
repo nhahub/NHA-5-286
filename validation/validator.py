@@ -70,7 +70,8 @@ _PATTERN_RULES: tuple[tuple[str, str, str], ...] = (
     ("env-credentials", r"process\.env\.(?:USERNAME|PASSWORD)\b",
      "use process.env.TEST_USERNAME / TEST_PASSWORD"),
     ("hardcoded-secret", r"(?i)password[^\n]*\.fill\(\s*['\"`]",
-     "password must come from process.env.TEST_PASSWORD, not a literal"),
+     "password must come from process.env.TEST_PASSWORD, not a literal; for a wrong-password scenario derive it, "
+     "e.g. const wrongPassword = password + '-wrong'"),
     ("no-any", r":\s*any\b|\bas\s+any\b", "avoid the 'any' type"),
 )
 

@@ -39,7 +39,7 @@ from pydantic import BaseModel, Field
 from analysis.pre_classifier import classify
 from agents.fix_proposal import read_failed_spec_code
 from contracts.analysis import FailureAnalysis
-from llm.client import record_model_used
+from llm.client import record_model_used, structured_chain_with_json_fallback
 
 
 class RawFailureAnalysis(BaseModel):
@@ -130,9 +130,8 @@ def build_analyzer_agent(
     )
 
     llm = model_factory(model)
-    structured_llm = llm.with_structured_output(RawFailureAnalysis)
 
-    return prompt | structured_llm
+    return structured_chain_with_json_fallback(prompt, llm, RawFailureAnalysis)
 
 
 def _build_interactions_input(

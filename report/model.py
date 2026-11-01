@@ -252,8 +252,22 @@ def build_report_model(state: Mapping[str, Any]) -> ReportModel:
             defects.append({"scenario_id": sid, "summary": redact(str(analysis.get("root_cause") or ""))})
 
     patches: list[dict[str, Any]] = []
+    applied_diffs: set[str] = set()
+    for item in state.get("applied_patches") or []:  # every applied attempt, oldest first
+        if isinstance(item, Mapping):
+            applied_diffs.add(str(item.get("diff") or ""))
+            patches.append({
+                "scenario_id": str(item.get("scenario_id") or ""),
+                "attempt": item.get("attempt"),
+                "applied": True,
+                "risky": bool(item.get("risky")),
+                "approval": item.get("approval"),
+                "reason": redact(str(item.get("reason") or "")),
+                "requirement": text or None,
+                "diff": str(item.get("diff") or ""),
+            })
     proposal = state.get("fix_proposal")
-    if isinstance(proposal, Mapping):
+    if isinstance(proposal, Mapping) and str(proposal.get("patch_diff") or "") not in applied_diffs:
         approval = state.get("approval_decision")
         patches.append({
             "scenario_id": failure_analysis[0]["scenario_id"] if failure_analysis else "",
@@ -264,6 +278,17 @@ def build_report_model(state: Mapping[str, Any]) -> ReportModel:
             "requirement": text or None,
             "diff": str(proposal.get("patch_diff") or ""),
         })
+
+    rejection = state.get("fix_rejection")
+    fix_rejection = None
+    if isinstance(rejection, Mapping) and rejection.get("code"):
+        fix_rejection = {
+            "scenario_id": failure_analysis[0]["scenario_id"] if failure_analysis else "",
+            "code": str(rejection.get("code")),
+            "message": redact(str(rejection.get("message") or "")),
+            "failing_line": rejection.get("failing_line"),
+            "failing_locator": redact(str(rejection["failing_locator"])) if rejection.get("failing_locator") else None,
+        }
 
     patched_ids = {p["scenario_id"] for p in patches if p["applied"]}
     code: list[dict[str, Any]] = []
@@ -300,6 +325,7 @@ def build_report_model(state: Mapping[str, Any]) -> ReportModel:
         "failure_analysis": failure_analysis,
         "evidence": _evidence_items(state.get("execution_evidence")),
         "patches": patches,
+        "fix_rejection": fix_rejection,
         "generated_code": code,
         "defect_candidates": defects,
         "errors": [redact(str(e)) for e in state.get("errors") or []],

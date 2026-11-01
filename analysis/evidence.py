@@ -1,5 +1,6 @@
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -109,6 +110,34 @@ def _attachment_path(
     return str(path.resolve())
 
 
+# Playwright writes the page's accessibility tree into the "error-context" attachment when a test fails.
+_SNAPSHOT_SECTION = re.compile(r"#\s*Page snapshot\s*\n+```(?:yaml)?[ \t]*\n(?P<body>.*?)```", re.S | re.I)
+MAX_SNAPSHOT_CHARS = 20_000
+_HEADER_SECRET = re.compile(
+    r"(?im)\b(authorization|proxy-authorization|cookie|set-cookie|x-api-key|api[-_]?key|x-auth-token)\b[ \t]*[:=][ \t]*[^\n]+")
+_BEARER = re.compile(r"(?i)\bbearer[ \t]+[A-Za-z0-9._~+/=-]{8,}")
+_KEY_VALUE_SECRET = re.compile(
+    r'(?i)("?(?:password|passwd|token|access_token|refresh_token|client_secret|secret)"?[ \t]*[:=][ \t]*)("[^"\n]*"|[^\s"]+)')
+
+
+def sanitize_snapshot(text: str) -> str:
+    """Remove actual secrets from DOM text (passwords, tokens, API keys, cookies, authorization headers) while
+    leaving the visible UI text that selectors depend on (labels, roles, names such as 'Admin') untouched."""
+    from llm.errors import redact
+
+    text = redact(text)  # API keys from the environment and the passwords registered for the active runs
+    text = _HEADER_SECRET.sub(lambda m: f"{m.group(1)}: [redacted]", text)
+    text = _BEARER.sub("Bearer [redacted]", text)
+    return _KEY_VALUE_SECRET.sub(lambda m: m.group(1) + "[redacted]", text)
+
+
+def _snapshot_from_error_context(content: str | None) -> dict | None:
+    match = _SNAPSHOT_SECTION.search(content or "")
+    if not match or not match["body"].strip():
+        return None
+    return {"aria": sanitize_snapshot(match["body"])[:MAX_SNAPSHOT_CHARS], "source": "error-context"}
+
+
 def _parse_entries(
     content: str | None,
     model: type[ConsoleEntry] | type[NetworkEntry],
@@ -156,6 +185,7 @@ def normalise_evidence(
     console_logs = []
     network_errors = []
     final_url = None
+    error_context = None
 
     for attachment in attachments:
         if not isinstance(attachment, dict):
@@ -192,6 +222,9 @@ def normalise_evidence(
                 )
             )
 
+        elif name == "error-context":
+            error_context = _read_attachment(attachment, run_dir)
+
         elif name == "final-url.txt":
             content = _read_attachment(attachment, run_dir)
             if content:
@@ -203,11 +236,16 @@ def normalise_evidence(
         or "Unknown scenario"
     )
 
+    # A snapshot provided by the evidence collector always wins; the Playwright attachment is only a fallback.
+    provided = raw_result.get("page_snapshot")
+    page_snapshot = provided if isinstance(provided, dict) and provided else _snapshot_from_error_context(error_context)
+
     return Evidence(
         scenario_name=str(scenario_name),
         error_message=extract_error_message(raw_result),
         failed_step=raw_result.get("failed_step"),
         spec_code=spec_code or raw_result.get("spec_code"),
+        page_snapshot=page_snapshot,
         screenshot_path=screenshot_path,
         trace_path=trace_path,
         console_log=console_logs,

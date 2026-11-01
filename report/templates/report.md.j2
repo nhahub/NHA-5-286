@@ -103,12 +103,24 @@ No scenarios were produced.
 
 {% endfor %}
 {% endif %}
+{% if r.fix_rejection %}
+
+## Fix proposal rejected
+
+No fix was proposed{% if r.fix_rejection.scenario_id %} for {{ r.fix_rejection.scenario_id }}{% endif %}, and no healing attempt was used. The diagnosis above still applies.
+
+- **Reason code:** {{ r.fix_rejection.code }}
+- **Why:** {{ r.fix_rejection.message }}
+{% if r.fix_rejection.failing_line %}
+- **Failing line:** {{ r.fix_rejection.failing_line }}{% if r.fix_rejection.failing_locator %} ({{ r.fix_rejection.failing_locator }}){% endif %}
+{% endif %}
+{% endif %}
 {% if r.patches %}
 
 ## Patches
 
 {% for p in r.patches %}
-### {{ p.scenario_id }}: {{ "APPLIED" if p.applied else "NOT APPLIED" }}{% if p.risky %} (risky){% endif %}
+### {{ p.scenario_id }}: {{ "APPLIED" if p.applied else "NOT APPLIED" }}{% if p.attempt %} (attempt {{ p.attempt }}){% endif %}{% if p.risky %} (risky){% endif %}
 
 - **Reason:** {{ p.reason }}
 - **Approval:** {{ p.approval or "n/a" }}
