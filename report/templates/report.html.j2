@@ -229,7 +229,7 @@
 <section class="card">
   <h2>Patches</h2>
 {% for p in r.patches %}
-  <h3>{{ p.scenario_id }}: {{ "APPLIED" if p.applied else "NOT APPLIED" }}{% if p.risky %} (risky){% endif %}</h3>
+  <h3>{{ p.scenario_id }}: {{ "APPLIED" if p.applied else "NOT APPLIED" }}{% if p.attempt %} (attempt {{ p.attempt }}){% endif %}{% if p.risky %} (risky){% endif %}</h3>
   <ul class="clean">
     <li><strong>Reason:</strong> {{ p.reason }}</li>
     <li><strong>Approval:</strong> {{ p.approval or "n/a" }}</li>

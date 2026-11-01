@@ -58,7 +58,7 @@ def test_test_run_state_has_all_required_keys() -> None:
     declared = set(TestRunState.__annotations__.keys())
     missing = EXPECTED_STATE_KEYS - declared
     assert not missing, f"TestRunState missing fields: {missing}"
-    assert len(declared) == 30  # 29 spec fields + the optional fix_rejection
+    assert len(declared) == 31  # 29 spec fields + the optional fix_rejection and applied_patches
 
 
 # ---------------------------------------------------------------------------

@@ -84,6 +84,7 @@ class ReportEvidence(TypedDict, total=False):
 
 class ReportPatch(TypedDict, total=False):
     scenario_id: str
+    attempt: int | None  # which healing attempt applied it (1 or 2)
     applied: bool
     risky: bool
     approval: str | None
