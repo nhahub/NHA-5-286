@@ -53,7 +53,13 @@ def test_failure_to_applied_fix_reaches_revalidation(run_dir, monkeypatch):
         "test_plan": [{"name": NAME}],
         "generated_test_files": [str(run_dir)],
         "execution_result": {"stats": {"unexpected": 1}},
-        "execution_evidence": [{"scenario_name": NAME, "error_message": "locator.fill: Timeout waiting for getByLabel('Username')"}],
+        "execution_evidence": [{
+            "scenario_name": NAME,
+            "error_message": "locator.fill: Timeout 10000ms exceeded.\nCall log:\n  - waiting for getByLabel('Username')\n\n\n"
+                             "  4 |   await page.goto('https://example.com');\n"
+                             "> 5 |   await page.getByLabel('Username').fill('a');\n",
+            "page_snapshot": {"aria": '- textbox "Username" [ref=e1]\n- button "Login" [ref=e2]'},
+        }],
     }
 
     monkeypatch.setattr(analyzer_module, "build_analyzer_agent", lambda **kw: object())

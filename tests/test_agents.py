@@ -303,8 +303,11 @@ def test_analyzer_to_fix_proposal_handoff(monkeypatch) -> None:
         "execution_evidence": [
             {
                 "scenario_name": "Login",
-                "error_message": "Expected button to be visible",
+                "error_message": "locator.click: Timeout 10000ms exceeded.\nCall log:\n  - waiting for getByText('Old')\n\n\n"
+                                 "  3 | test('Login', async ({ page }) => {\n"
+                                 "> 4 |   await page.getByText(\"Old\").click();\n",
                 "failed_step": "Click login button",
+                "page_snapshot": {"aria": '- button "Login" [ref=e1]'},
             }
         ],
         "test_plan": [{"name": "Login"}],
@@ -347,16 +350,15 @@ def test_analyzer_to_fix_proposal_handoff(monkeypatch) -> None:
     # Pass the analyzer output to the fix proposal agent.
     handoff_state = {**state, **analysis_result}
 
-    original_code = 'const button = page.getByText("Old");\n'
+    original_code = (
+        "import { test, expect } from '@support/evidence';\n\n"
+        "test('Login', async ({ page }) => {\n"
+        '  await page.getByText("Old").click();\n'
+        "});\n"
+    )
     spec_filename = "s1-login.spec.ts"
 
-    patch = (
-        f"--- a/{spec_filename}\n"
-        f"+++ b/{spec_filename}\n"
-        "@@ -1 +1 @@\n"
-        '-const button = page.getByText("Old");\n'
-        '+const button = page.getByText("Login");\n'
-    )
+    patch = fix_module.build_patch_diff(original_code, original_code.replace('"Old"', '"Login"'), spec_filename)
 
     class FakeAgent:
         def invoke(self, inputs):

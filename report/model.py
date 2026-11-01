@@ -265,6 +265,17 @@ def build_report_model(state: Mapping[str, Any]) -> ReportModel:
             "diff": str(proposal.get("patch_diff") or ""),
         })
 
+    rejection = state.get("fix_rejection")
+    fix_rejection = None
+    if isinstance(rejection, Mapping) and rejection.get("code"):
+        fix_rejection = {
+            "scenario_id": failure_analysis[0]["scenario_id"] if failure_analysis else "",
+            "code": str(rejection.get("code")),
+            "message": redact(str(rejection.get("message") or "")),
+            "failing_line": rejection.get("failing_line"),
+            "failing_locator": redact(str(rejection["failing_locator"])) if rejection.get("failing_locator") else None,
+        }
+
     patched_ids = {p["scenario_id"] for p in patches if p["applied"]}
     code: list[dict[str, Any]] = []
     for sid in ids:
@@ -300,6 +311,7 @@ def build_report_model(state: Mapping[str, Any]) -> ReportModel:
         "failure_analysis": failure_analysis,
         "evidence": _evidence_items(state.get("execution_evidence")),
         "patches": patches,
+        "fix_rejection": fix_rejection,
         "generated_code": code,
         "defect_candidates": defects,
         "errors": [redact(str(e)) for e in state.get("errors") or []],

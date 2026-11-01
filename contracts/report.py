@@ -92,6 +92,14 @@ class ReportPatch(TypedDict, total=False):
     diff: str
 
 
+class ReportFixRejection(TypedDict, total=False):
+    scenario_id: str
+    code: str
+    message: str
+    failing_line: int | None
+    failing_locator: str | None
+
+
 class ReportCode(TypedDict, total=False):
     file: str
     patched: bool
@@ -118,6 +126,7 @@ class ReportModel(TypedDict, total=False):
     failure_analysis: list[ReportAnalysis]
     evidence: list[ReportEvidence]
     patches: list[ReportPatch]
+    fix_rejection: ReportFixRejection | None
     generated_code: list[ReportCode]
     defect_candidates: list[DefectCandidate]
     errors: list[str]

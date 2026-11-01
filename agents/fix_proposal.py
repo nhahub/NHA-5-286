@@ -25,6 +25,25 @@ from tempfile import TemporaryDirectory
 import re
 from pydantic import BaseModel, Field
 from llm.retry import call_with_backoff
+from healing.patch_guard import (
+    FailureTarget,
+    PatchVerdict,
+    apply_diff_text,
+    check_patch,
+    locate_failure,
+    make_rejection,
+    snapshot_text,
+)
+
+MAX_SNAPSHOT_IN_CONTEXT = 12_000
+
+
+class PatchRejected(ValueError):
+    """The proposed fix does not address the diagnosed failure (decided deterministically, before approval)."""
+
+    def __init__(self, verdict: PatchVerdict) -> None:
+        super().__init__(verdict.message)
+        self.verdict = verdict
 
 
 class RawFix(BaseModel):
@@ -53,7 +72,8 @@ def build_patch_diff(original: str, fixed: str, spec_filename: str) -> str:
 
 
 
-def build_failure_context(state: Mapping[str, Any],*, spec_code: str, spec_filename: str,) -> str:
+def build_failure_context(state: Mapping[str, Any],*, spec_code: str, spec_filename: str,
+                          failing_location: dict | None = None, snapshot: str = "") -> str:
     """
     Prepare failure information for the Fix Proposal LLM.
     Does not modify any files.
@@ -94,9 +114,13 @@ def build_failure_context(state: Mapping[str, Any],*, spec_code: str, spec_filen
         ),
         "spec_code": spec_code,
         "spec_filename": spec_filename,
+        "failing_location": failing_location,
+        "page_snapshot": snapshot[:MAX_SNAPSHOT_IN_CONTEXT] or None,
         "patch_instruction": (
         f"Return fixed_code: the COMPLETE corrected content of {spec_filename}, "
-        "changing only what the fix requires. Do not write a diff; the system builds it."
+        "changing only the failing line/locator in failing_location. Use only names, labels and roles that appear "
+        "in page_snapshot. Never use force: true or any forced interaction. "
+        "Do not write a diff; the system builds it."
 ),
     }
 
@@ -238,6 +262,38 @@ def validate_patch_on_copy(
                + result.stderr.decode("utf-8", errors="replace").strip()[:300]
             )
 
+def _rejected(code: str, message: str, target: FailureTarget | None, subtype: str | None, *,
+              attempts: int = 0, codes: tuple[str, ...] = ()) -> dict:
+    """State update for a fix that could not be proposed safely. Clearing fix_proposal keeps routing on 'report'."""
+    return {
+        "fix_proposal": None,
+        "fix_rejection": make_rejection(code, message, target=target, subtype=subtype, codes=codes, attempts=attempts),
+    }
+
+
+def _failure_target(state: Mapping[str, Any], spec_code: str, subtype: str | None):
+    """(target, DOM snapshot text, early rejection or None) for the first failed scenario, before any LLM call."""
+    item = next((e for e in (state.get("execution_evidence") or [])
+                 if isinstance(e, Mapping) and e.get("error_message")), None)
+    if item is None:
+        return None, "", None  # build_failure_context reports the missing evidence
+    snapshot = snapshot_text(item.get("page_snapshot"))
+    target = locate_failure(item.get("error_message"), spec_code)
+    if target is None:
+        return None, snapshot, _rejected(
+            "unlocated_failure", "The failing line could not be identified from the error message and call log, so "
+            "no fix can be checked against the failure.", None, subtype)
+    if target.ambiguous:
+        return target, snapshot, _rejected(
+            "ambiguous_failure", "The failing locator appears on several lines and none can be tied to the failure.",
+            target, subtype)
+    if subtype == "SELECTOR" and not snapshot.strip():
+        return target, snapshot, _rejected(
+            "insufficient_evidence", "No DOM snapshot was captured for this failure, so a selector change would be a "
+            "guess. No patch was proposed.", target, subtype)
+    return target, snapshot, None
+
+
 def run_fix_proposal( state: Mapping[str, Any], *, spec_code: str,spec_filename: str, model: str,
 model_factory: Callable[[str], BaseChatModel]) -> dict:
     """
@@ -245,14 +301,26 @@ model_factory: Callable[[str], BaseChatModel]) -> dict:
     Never applies or writes the patch.
     """
 
-    # 1. Prepare failure context
+    subtype = (state.get("failure_analysis") or {}).get("subtype")
+
+    # 1. Locate the failure and check the DOM evidence BEFORE any LLM call, so a hopeless request costs nothing
+    target, snapshot, early_rejection = _failure_target(state, spec_code, subtype)
+    if early_rejection is not None:
+        return early_rejection
+
+    # 2. Prepare failure context
     context = build_failure_context(
         state,
         spec_code=spec_code,
         spec_filename=spec_filename,
+        failing_location=(
+            {"line": target.line, "code": target.line_text.strip(), "locator": target.locator}
+            if target else None
+        ),
+        snapshot=snapshot,
     )
 
-    # 2. Build the LLM agent
+    # 3. Build the LLM agent
     agent = build_fix_proposal_agent(
         model=model,
         mcp_tools=[],
@@ -260,7 +328,7 @@ model_factory: Callable[[str], BaseChatModel]) -> dict:
     )
 
 
-    # 3. Generate a fix with at most one retry
+    # 4. Generate a fix with at most one retry
     original_context = context
 
     for attempt in range(2):
@@ -284,8 +352,24 @@ model_factory: Callable[[str], BaseChatModel]) -> dict:
                 if fixed_code.strip() == spec_code.strip():
                     raise ValueError("fixed_code is identical to the original spec.")
                 patch_diff = build_patch_diff(spec_code, fixed_code, spec_filename)
+                proposed_text = fixed_code
             else:
                 patch_diff = data.get("patch_diff") or ""
+                proposed_text = apply_diff_text(patch_diff, spec_code, spec_filename) if patch_diff.strip() else ""
+
+            # Deterministic pre-approval guard: does this patch address THIS failure? (no LLM, no healing attempt used)
+            if target is not None and proposed_text:
+                verdict = check_patch(
+                    spec_code, proposed_text, target=target, subtype=subtype, snapshot=snapshot,
+                    lint_name=spec_filename,
+                    skip_lint_rules=(
+                        frozenset({"hardcoded-secret"})  # login page under test: fake literal input is expected
+                        if (state.get("test_request") or {}).get("auth_skipped") else frozenset()
+                    ),
+                )
+                if not verdict.ok:
+                    raise PatchRejected(verdict)
+
             raw_proposal = FixProposal.model_validate({
                 "patch_diff": patch_diff,
                 "reason": data.get("reason"),
@@ -309,12 +393,29 @@ model_factory: Callable[[str], BaseChatModel]) -> dict:
 
             # Both attempts failed
             if attempt == 1:
+                if isinstance(exc, PatchRejected):
+                    # Not a system error: the diagnosis stands, but no safe fix could be proposed. The run stays FAIL
+                    # and no healing attempt is used (that counter only moves in apply_fix, after approval).
+                    return {
+                        **_rejected(exc.verdict.code or "rejected", exc.verdict.message, target, subtype,
+                                    attempts=2, codes=exc.verdict.codes),
+                        **record_model_used("fix_proposal", model, state),
+                    }
                 raise ValueError(
                     "Fix Proposal failed validation "
                     "after 2 attempts."
                 ) from exc
 
             # First attempt failed: tell the LLM why
+            if isinstance(exc, PatchRejected):
+                context = (
+                    original_context
+                    + "\n\nYour previous fixed_code was REJECTED before approval: "
+                    + f"{exc.verdict.message[:600]}\n"
+                    + "Change only the failing line/locator in failing_location, use only names that appear in "
+                      "page_snapshot, never use force: true, and return the complete corrected file."
+                )
+                continue
             context = (
                 original_context
                 + "\n\nYour previous proposal failed "
@@ -332,6 +433,7 @@ model_factory: Callable[[str], BaseChatModel]) -> dict:
         # 7. Return only after successful validation
         return {
             "fix_proposal": proposal,
+            "fix_rejection": None,
             **record_model_used(
                 "fix_proposal",
                 model,

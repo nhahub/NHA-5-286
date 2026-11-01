@@ -30,6 +30,7 @@ class TestRunState(TypedDict):
     failure_analysis: dict | None        # FailureAnalysis dict from the Analyzer
     failure_type: str | None             # validated failure class (Test/Application/Environment/Infrastructure)
     fix_proposal: dict | None            # FixProposal dict from the Fix Proposal agent
+    fix_rejection: dict | None           # why no fix was proposed (code + message); the run stays FAIL, no heal attempt used
     approval_decision: str | None        # "approved" | "rejected" | "auto" | None
     healing_retry_count: int | dict[str, int]  # heal attempts, max 2, optionally counted per test
     models_used: dict[str, str]          # {agent_name: model_string} for the report

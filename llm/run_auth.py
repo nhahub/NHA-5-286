@@ -25,6 +25,7 @@ class AuthField:
     key: str       # name of the form field, e.g. "username"
     env: str       # environment variable the generated tests read, e.g. "TEST_USERNAME"
     label: str
+    secret: bool = True   # False: an identifier such as a plain username, scrubbed only when it looks like an email
 
 
 @dataclass(frozen=True)
@@ -36,7 +37,7 @@ class AuthMethod:
 
 AUTH_METHODS: dict[str, AuthMethod] = {
     "username_password": AuthMethod("username_password", "Username and password", (
-        AuthField("username", "TEST_USERNAME", "Username"),
+        AuthField("username", "TEST_USERNAME", "Username", secret=False),
         AuthField("password", "TEST_PASSWORD", "Password"),
     )),
 }
@@ -44,6 +45,7 @@ NO_AUTH = "none"
 
 # Every environment variable any method can set; all are removed from the child process unless the run needs them.
 ALL_AUTH_ENV_NAMES: frozenset[str] = frozenset(f.env for m in AUTH_METHODS.values() for f in m.fields)
+SECRET_ENV_NAMES: frozenset[str] = frozenset(f.env for m in AUTH_METHODS.values() for f in m.fields if f.secret)
 
 
 class AuthError(ValueError):
@@ -140,10 +142,16 @@ def _variants(value: str) -> set[str]:
     return {value, json.dumps(value)[1:-1], quote(value, safe=""), quote(value)}
 
 
+def _is_scrubbed(env_name: str, value: str) -> bool:
+    """Passwords and other secrets always; a plain username (Admin, tester1) is visible UI text that DOM evidence
+    needs, so it is kept unless it looks like an account identifier such as an email address."""
+    return len(value) >= MIN_SECRET_LENGTH and (env_name in SECRET_ENV_NAMES or "@" in value)
+
+
 def secret_values() -> list[str]:
-    """Every registered secret value (all active runs) plus its JSON and URL-encoded forms, longest first."""
+    """Every value to scrub (all active runs) plus its JSON and URL-encoded forms, longest first."""
     with _LOCK:
-        values = [v for c in _REGISTRY.values() for v in c.secrets.values() if len(v) >= MIN_SECRET_LENGTH]
+        values = [v for c in _REGISTRY.values() for n, v in c.secrets.items() if _is_scrubbed(n, v)]
     return sorted({x for v in values for x in _variants(v) if x}, key=len, reverse=True)
 
 

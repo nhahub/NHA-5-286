@@ -210,6 +210,20 @@
 {% endfor %}
 </section>
 {% endif %}
+{% if r.fix_rejection %}
+
+<section class="card">
+  <h2>Fix proposal rejected</h2>
+  <p>No fix was proposed{% if r.fix_rejection.scenario_id %} for {{ r.fix_rejection.scenario_id }}{% endif %}, and no healing attempt was used. The diagnosis above still applies.</p>
+  <ul class="clean">
+    <li><strong>Reason code:</strong> {{ r.fix_rejection.code }}</li>
+    <li><strong>Why:</strong> {{ r.fix_rejection.message }}</li>
+{% if r.fix_rejection.failing_line %}
+    <li><strong>Failing line:</strong> {{ r.fix_rejection.failing_line }}{% if r.fix_rejection.failing_locator %} ({{ r.fix_rejection.failing_locator }}){% endif %}</li>
+{% endif %}
+  </ul>
+</section>
+{% endif %}
 {% if r.patches %}
 
 <section class="card">
