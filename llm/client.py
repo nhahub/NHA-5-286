@@ -287,6 +287,26 @@ def _code_without_json(text: str, user_payload: str) -> CodegenResult | None:
     return CodegenResult(scenario_id=scenario_id, code=code)
 
 
+def structured_chain_with_json_fallback(prompt: Any, llm: Any, schema: type) -> Any:
+    """prompt | llm.with_structured_output(schema), plus a fallback for providers that return an empty or unparsed
+    structured reply (free reasoning models often spend their tokens thinking and answer with nothing).
+
+    The fallback asks for one plain JSON object and validates it against the SAME schema. Only parse-type errors
+    trigger it, never rate limits or auth errors, so it cannot double the requests sent to a limited quota."""
+    from langchain_core.exceptions import OutputParserException
+    from langchain_core.runnables import RunnableLambda
+
+    def plain_json(prompt_value: Any) -> Any:
+        messages = [*prompt_value.to_messages(), HumanMessage(content=(
+            "Reply with ONLY one JSON object that matches this JSON schema, with no other text and no Markdown:\n"
+            + json.dumps(schema.model_json_schema())))]
+        return schema.model_validate(extract_json_object(message_text(llm.invoke(messages))))
+
+    primary = prompt | llm.with_structured_output(schema)
+    return primary.with_fallbacks([prompt | RunnableLambda(plain_json)],
+                                  exceptions_to_handle=(ValueError, OutputParserException))
+
+
 def parse_codegen_output(text: str) -> CodegenResult:
     data = extract_json_object(text)
     try:

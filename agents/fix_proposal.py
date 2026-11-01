@@ -18,7 +18,7 @@ from contracts.analysis import FailureAnalysis, FixProposal
 import json
 from typing import Any, Mapping
 from contracts.evidence import Evidence
-from llm.client import record_model_used
+from llm.client import record_model_used, structured_chain_with_json_fallback
 import subprocess
 import difflib
 from tempfile import TemporaryDirectory
@@ -161,11 +161,7 @@ def build_fix_proposal_agent(model: str,mcp_tools: list,*,model_factory: Callabl
 
     llm = model_factory(model)
 
-    structured_llm = llm.with_structured_output(
-        RawFix
-    )
-
-    return prompt | structured_llm
+    return structured_chain_with_json_fallback(prompt, llm, RawFix)
 
 def validate_and_flag_proposal( raw_proposal: dict,analysis_data: dict,) -> dict:
 
